@@ -1597,6 +1597,8 @@
 .tw-al{color:#FFB199}
 .tw-ok{color:#33D69F}
 .tw-meta{margin-left:auto;color:#6F819B}
+.tw-flame{animation:twFlicker .5s ease-in-out infinite alternate;transform-origin:center bottom;transform-box:fill-box}
+@keyframes twFlicker{from{opacity:.75;transform:scaleY(.92)}to{opacity:1;transform:scaleY(1.06)}}
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -8430,6 +8432,234 @@ setInterval(tickChrom, 1500);
     return false;
   }
 
+  /* ===================== SERVICIOS ===================== */
+  COLS.ha   = { kind:'ha',   areas:['horno_a'],        title:'Horno D24.1101A', sub:'Horno líder de hot oil · según pantalla DCS', topKeyHist:'hotOilTemp', defSel:'horno' };
+  COLS.hb   = { kind:'hb',   areas:['horno_b'],        title:'Horno D24.1101B', sub:'Horno en cascada · según pantalla DCS', topKeyHist:'hornoBOutTemp', defSel:'horno' };
+  COLS.ho   = { kind:'ho',   areas:['distrib_hotoil'], title:'Distribución de Hot Oil', sub:'D82.1101 · P-1101 A/B/C · 6 usuarios · según pantalla DCS', topKeyHist:'hotOilTemp', defSel:'bombas' };
+  COLS.fuel = { kind:'fuel', areas:['gas_comb_instr'], title:'Gas Combustible e Instrumentos', sub:'D82.3101 · colectores de gas combustible e instrumentos · según pantalla DCS', topKeyHist:'fuelGasPSIG', defSel:'d823101' };
+  ['ha','hb','ho','fuel'].forEach(k=>COLS[k].areas.forEach(a=>{ AREA_COL[a]=k; READY[a]=true; }));
+  const SERV = ['ha','hb','ho','fuel'];
+
+  function furnace(x, y, on, tag, coil){
+    const flame = on ? `<g class="tw-flame"><path d="M${x+60} ${y+190} q-14 -26 0 -52 q14 26 0 52 z" fill="#FF7043"/><path d="M${x+100} ${y+190} q-16 -32 0 -64 q16 32 0 64 z" fill="#FFB300"/><path d="M${x+140} ${y+190} q-14 -26 0 -52 q14 26 0 52 z" fill="#FF7043"/></g>` : '';
+    return `<rect x="${x+82}" y="${y-110}" width="36" height="110" fill="url(#twMetal)"/>
+      ${on?`<g class="tw-bubbles" fill="#8A9BB3" opacity=".6"><circle cx="${x+96}" cy="${y-118}" r="5"/><circle cx="${x+106}" cy="${y-124}" r="4"/></g>`:''}
+      <path d="M${x+60} ${y} L${x+82} ${y-10} H${x+118} L${x+140} ${y} L${x+200} ${y+70} H${x} Z" fill="url(#twMetalH)"/>
+      <rect x="${x}" y="${y+70}" width="200" height="140" fill="url(#twMetal)"/>
+      <rect x="${x+20}" y="${y+86}" width="160" height="110" fill="#0B1220" stroke="${on?'#FF7043':'#3C4E68'}" stroke-dasharray="4 3"/>
+      ${coil?`<path d="M${x+40} ${y+94} ${Array.from({length:3},()=>'h120 v8 h-120 v8').join(' ')} h120" stroke="${on?'#FFB300':'#4E6380'}" stroke-width="2.5" fill="none"/>`:''}
+      <g stroke="#FFB300" stroke-width="3" fill="none" opacity="${on?1:.3}">${[0,1,2,3].map(i=>`<path d="M${x+30} ${y+110+i*16} H${x+170}"/>`).join('')}</g>
+      ${flame}
+      <g stroke="#3C4E68" stroke-width="5"><path d="M${x+10} ${y+210} v24"/><path d="M${x+70} ${y+210} v24"/><path d="M${x+130} ${y+210} v24"/><path d="M${x+190} ${y+210} v24"/></g>
+      <text x="${x+100}" y="${y+262}" fill="#DCE6F2" font-size="14" font-weight="700" text-anchor="middle">${tag}</text>`;
+  }
+
+  /* ---------- HORNO A ---------- */
+  function sceneHa(){
+    const on = state.hornoA, q = V('hornoAFlowGPM'), tIn = V('hornoAInTemp'), tOut = V('hotOilTemp'), dT = V('hornoADeltaT'), fu = V('fuelHornoA'), st = V('stackTempA');
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Horno D24.1101A">${DEFS}${FLOOR}
+      <g class="tw-eq" data-tw-eq="horno">
+        ${selBox('horno', 620, 70, 330, 520)}
+        ${furnace(680, 270, on, 'D24.1101A', false)}
+        ${rd(640, 130, f2(st), '°F', on?'#FF7043':'#8A9BB3', 96)}
+        <rect x="830" y="130" width="100" height="22" rx="3" fill="${on?'#0E2A22':'#1A2433'}" stroke="${on?'#33D69F':'#3C4E68'}"/>
+        <text x="880" y="145" fill="${on?'#33D69F':'#8A9BB3'}" font-size="12" font-weight="700" text-anchor="middle">${on?'Marcha':'Parado'}</text>
+      </g>
+      <!-- entrada hot oil -->
+      <g class="tw-eq" data-tw-eq="entrada">
+        ${selBox('entrada', 12, 150, 600, 90)}
+        ${line('M20 220 H760 V340', '#FF7043', q>1, null, 4)}<text x="24" y="212" fill="#DCE6F2" font-size="12" font-weight="600">Hot Oil (retorno)</text>
+        ${rd(150, 170, f2(q*0.9977), 'USGPM', '#7FD4FF', 112)} ${rd(268, 170, f2(q), 'USGPM', '#7FD4FF', 112)}
+        ${rd(400, 170, f2(tIn), '°F', '#FF7043', 92)} ${rd(498, 170, f2(tIn-0.23), '°F', '#FF7043', 92)}
+      </g>
+      ${filterV(200, 250, 40, 60, 'F1100')}
+      <!-- salida con TIC -->
+      <g class="tw-eq" data-tw-eq="salida">
+        ${selBox('salida', 12, 300, 600, 110)}
+        ${line('M840 400 V380 H20', '#FFB300', q>1, 'twArrG', 4)}<text x="24" y="372" fill="#DCE6F2" font-size="12" font-weight="600">Hot Oil (suministro)</text>
+        ${ctl(300, 320, 'A', '515.00', f2(tOut), '°F', zc('hotOilTemp',tOut,'#FFB300'), 'TIC-1101A')}
+        ${rd(420, 270, f2(dT), 'GradF', '#FFCC66', 104)}
+      </g>
+      <!-- gas combustible -->
+      <g class="tw-eq" data-tw-eq="gascomb">
+        ${selBox('gascomb', 12, 420, 600, 120)}
+        ${line('M20 500 H730 V480', '#9AD8FF', on, null, 3)}<text x="24" y="492" fill="#DCE6F2" font-size="12" font-weight="600">Gas Comb.</text>
+        ${valve(600, 500, on?0.7:0, 'NC')}
+        ${ctl(420, 430, 'C', f2(dT), f2(fu), 'MSCFD', '#9AD8FF', 'FIC gas comb.')}
+      </g>
+      <g class="tw-eq" data-tw-eq="otro"><rect x="830" y="600" width="150" height="40" rx="6" fill="#13233A" stroke="#4FC3F7"/><text x="905" y="625" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">Al otro Horno →</text></g>
+    </svg>`;
+  }
+
+  /* ---------- HORNO B ---------- */
+  function sceneHb(){
+    const on = state.hornoB, q = V('hornoBFlowGPM'), tIn = V('hornoBInTemp'), tOut = V('hornoBOutTemp'), dT = V('hornoBDeltaT'), fu = V('fuelHornoB'), st = V('stackTempB');
+    const w = v => on ? v : 80;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Horno D24.1101B">${DEFS}${FLOOR}
+      <g class="tw-eq" data-tw-eq="horno">
+        ${selBox('horno', 560, 40, 430, 580)}
+        ${furnace(640, 250, on, 'D24.1101B', true)}
+        <rect x="600" y="50" width="100" height="22" rx="3" fill="${on?'#0E2A22':'#1A2433'}" stroke="${on?'#33D69F':'#3C4E68'}"/>
+        <text x="650" y="65" fill="${on?'#33D69F':'#8A9BB3'}" font-size="12" font-weight="700" text-anchor="middle">${on?'Marcha':(state.hornoBManual?'Manual':'Standby')}</text>
+        ${rd(600, 90, f0(st), '°F', on?'#FF7043':'#8A9BB3', 96)} ${rd(860, 90, on?'0.61':'0.00', 'pca', '#7FD4FF', 96)}
+        ${rd(600, 118, on?'60.0':'0.0', '% damper', '#7FD4FF', 110)} ${rd(860, 118, 'NaN', 'pca', '#FF6B6B', 96)}
+        ${rd(560, 290, f2(w(447.87)), '°F', '#FFB300', 92)} ${rd(560, 318, f2(w(593)), '°F', '#FFB300', 92)}
+        ${rd(860, 340, f2(w(1247.94)), '°F hogar', '#FF7043', 120)} ${rd(860, 370, on?'-0.51':'0.00', 'pca', '#7FD4FF', 96)}
+        ${rd(570, 400, on?'-0.508':'0.000', 'pca', '#7FD4FF', 92)} ${rd(860, 420, f2(w(845.16)), '°F', '#FF7043', 96)}
+        ${rd(860, 470, f0(on?9:0), 'PSIG', '#9AD8FF', 96)}
+      </g>
+      <g class="tw-eq" data-tw-eq="entrada">
+        ${selBox('entrada', 12, 140, 540, 90)}
+        ${line('M20 210 H660 V290', '#FF7043', q>1, null, 4)}<text x="24" y="202" fill="#DCE6F2" font-size="12" font-weight="600">Hot Oil (retorno)</text>
+        ${rd(40, 160, f2(q*0.9946), 'USGPM', '#7FD4FF', 104)} ${rd(150, 160, f2(q), 'USGPM', '#7FD4FF', 104)} ${rd(260, 160, f2(q*0.9969), 'USGPM', '#7FD4FF', 104)}
+        ${rd(380, 160, f2(tIn), '°F', '#FF7043', 84)} ${rd(470, 160, f2(tIn-0.15), '°F', '#FF7043', 84)}
+      </g>
+      <g class="tw-eq" data-tw-eq="salida">
+        ${selBox('salida', 12, 240, 540, 150)}
+        ${line('M660 360 H560 V370 H20', '#FFB300', q>1, 'twArrG', 4)}<text x="24" y="362" fill="#DCE6F2" font-size="12" font-weight="600">Hot Oil (suministro)</text>
+        ${rd(180, 300, f2(on?513.22:80), '°F', '#FFB300', 92)}
+        ${ctl(300, 290, 'A', '515.00', f2(tOut), '°F', zc('hornoBOutTemp',tOut,'#FFB300'), 'TIC-1101B')}
+        ${rd(420, 250, f2(dT), 'GradF', '#FFCC66', 104)}
+      </g>
+      <g class="tw-eq" data-tw-eq="gascomb">
+        ${selBox('gascomb', 12, 420, 540, 120)}
+        ${line('M20 500 H740 V480', '#9AD8FF', on, null, 3)}<text x="24" y="492" fill="#DCE6F2" font-size="12" font-weight="600">Gas Comb.</text>
+        ${valve(600, 500, on?0.7:0, 'NC')}
+        ${ctl(420, 430, 'C', f2(dT), f2(fu), 'MSCFD', '#9AD8FF', 'FIC gas comb.')}
+      </g>
+      <g class="tw-eq" data-tw-eq="otro"><rect x="830" y="600" width="150" height="40" rx="6" fill="#13233A" stroke="#4FC3F7"/><text x="905" y="625" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">← Al otro Horno</text></g>
+    </svg>`;
+  }
+
+  /* ---------- DISTRIBUCIÓN DE HOT OIL ---------- */
+  const HO_USERS = [['Intercambiadores','D21.0308'],['Gas a','Deshidratadoras'],['Gas de','Regeneración'],['Reboiler','Deetanizador'],['Reboiler','Depropanizador'],['Reboiler','Debutanizador']];
+  function sceneHo(){
+    const pA = state.pumps.hoA.on, pB = state.pumps.hoB.on, pC = state.pumps.hoC.on, any = pA||pB||pC;
+    const lvl = Math.max(0,Math.min(100,V('lvlD821101'))), q = V('hotOilFlowGPM'), p = V('hotOilPSIG'), tS = V('hotOilTemp'), tR = V('hotOilRetTemp');
+    const hot = tS > 300;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Distribución de hot oil">${DEFS}
+      ${line('M20 50 H180 V110', '#5E6E85', false, null, 2)}<text x="24" y="42" fill="#DCE6F2" font-size="12" font-weight="600">Venteo</text>${valve(140, 50, 0, '')}
+      ${line('M20 90 H140 V110', '#9AD8FF', true, null, 2)}<text x="24" y="82" fill="#DCE6F2" font-size="12" font-weight="600">Gas Comb.</text>${valve(100, 90, 0.3, '')}
+      <g class="tw-eq" data-tw-eq="tanque">
+        ${selBox('tanque', 12, 100, 300, 120)}
+        ${hDrum(90, 130, 200, 64, lvl, '', zc('lvlD821101',lvl,'#38D9A9'))}
+        <text x="190" y="126" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D82.1101</text>
+        ${rd(20, 150, f1(lvl), '%', zc('lvlD821101',lvl,'#38D9A9'), 64)}
+      </g>
+      ${line('M190 194 V240 H420 M420 140 V240 M420 190 H470 M420 140 H470 M420 240 H470', '#FF7043', any, null, 3)}
+      <g class="tw-eq" data-tw-eq="bombas">
+        ${selBox('bombas', 410, 106, 140, 170)}
+        ${pump(520, 140, pA, 'A')}${pump(520, 190, pB, 'B')}${pump(520, 240, pC, 'C')}
+      </g>
+      ${line('M536 140 H620 V100 H975 M536 190 H620 M536 240 H620 V140', '#FFB300', any, null, 4)}
+      <text x="985" y="92" fill="#DCE6F2" font-size="11" text-anchor="end">Horno A</text>
+      ${line('M880 100 V150 H975', '#FFB300', any && state.hornoB, 'twArrG', 3)}<text x="985" y="142" fill="#DCE6F2" font-size="11" text-anchor="end">Horno B</text>
+      <g class="tw-eq" data-tw-eq="fic">
+        ${selBox('fic', 640, 170, 250, 130)}
+        ${ctl(680, 190, 'A', '220.00', f2(q), 'USGPM', '#7FD4FF', 'FIC-1101')}
+        ${line('M760 100 V310', '#5E6E85', false, null, 1)}
+        ${valve(760, 290, any?0.4:0, 'NO')} ${rd(800, 250, f2(p), 'PSIG', '#7FD4FF', 84)}
+      </g>
+      <!-- colectores suministro / retorno -->
+      ${line('M975 380 H880 V330 H30', '#FFB300', hot && any, null, 4)}
+      <text x="985" y="372" fill="#DCE6F2" font-size="11" text-anchor="end">Horno A</text>
+      ${line('M975 430 H880', '#FFB300', hot && any && state.hornoB, null, 3)}<text x="985" y="422" fill="#DCE6F2" font-size="11" text-anchor="end">Horno B</text>
+      ${line('M820 380 V310 M30 330 V600', '#FFB300', hot && any, null, 4)}
+      ${line('M60 380 H820', '#FF7043', hot && any, null, 3)}
+      ${rd(40, 300, f1(tS), '°F sum.', zc('hotOilTemp',tS,'#FFB300'), 110)} ${rd(160, 300, f1(tR), '°F ret.', '#FF7043', 110)}
+      <g class="tw-eq" data-tw-eq="usuarios">
+        ${selBox('usuarios', 12, 390, 976, 280)}
+        ${HO_USERS.map((u,i)=>{ const x = 60 + i*155; return `
+          ${line(`M${x} 330 V560`, '#FFB300', hot && any, null, 2)}${line(`M${x+40} 560 V380`, '#FF7043', hot && any, null, 2)}
+          <rect x="${x-30}" y="566" width="130" height="50" rx="5" fill="#0F1A2B" stroke="#24364F"/>
+          <text x="${x+35}" y="586" fill="#DCE6F2" font-size="11" font-weight="600" text-anchor="middle">${u[0]}</text>
+          <text x="${x+35}" y="602" fill="#DCE6F2" font-size="11" text-anchor="middle">${u[1]}</text>`; }).join('')}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- GAS COMBUSTIBLE E INSTRUMENTOS ---------- */
+  function sceneFuel(){
+    const pIn = V('fuelInPSIG'), lvl = Math.max(0,Math.min(100,V('lvlD823101'))), pF = V('fuelGasPSIG'), qF = V('fuelFlowM3H'), pI = V('instAirPSIG'), qI = V('instFlowM3H');
+    const vs = state.vessels.lvlD823101, ok = !state.esdActive;
+    const users = ['PC3','Compresores','D24.1101A/B','D82.1101','Recomp.','Piloto Venteo','Purga Venteo'];
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Gas combustible e instrumentos">${DEFS}${FLOOR}
+      <g class="tw-eq" data-tw-eq="entrada">
+        ${selBox('entrada', 12, 150, 300, 130)}
+        ${line('M20 190 H90 V240 H320', '#9AD8FF', ok, null, 3)}<text x="24" y="182" fill="#DCE6F2" font-size="12" font-weight="600">Salida KTI</text>
+        ${valve(90, 190, ok?0.7:0, '')}
+        ${line('M20 240 H90', '#9AD8FF', false, null, 3)}<text x="24" y="262" fill="#DCE6F2" font-size="12" font-weight="600">Regeneración</text>
+        ${valve(200, 240, ok?0.5:0, 'NC')}
+        ${ctl(140, 160, 'A', '150', f0(pIn), 'psig', '#7FD4FF', 'PIC entrada')}
+      </g>
+      <g class="tw-eq" data-tw-eq="d823101">
+        ${selBox('d823101', 170, 220, 230, 300)}
+        ${vDrum(320, 250, 60, 190, lvl, 'D82.3101', zc('lvlD823101',lvl,'#38D9A9'))}
+        ${ctl(190, 330, 'A', f1(vs.sp), f1(lvl), '%', zc('lvlD823101',lvl,'#38D9A9'), 'LIC-3101')}
+        ${line('M350 470 V480 H20', '#38D9A9', lvl>vs.sp, 'twArrG', 2)}<text x="24" y="472" fill="#DCE6F2" font-size="12" font-weight="600">Drenajes</text>
+        ${valve(260, 480, lvl>vs.sp?0.6:0, 'NC')}
+      </g>
+      <!-- gas combustible -->
+      <g class="tw-eq" data-tw-eq="comb">
+        ${selBox('comb', 400, 40, 590, 460)}
+        ${line('M350 240 V200 H760', '#9AD8FF', ok, null, 4)}
+        ${rd(440, 90, '39104.5', 'm3', '#A9B8CC', 110)} ${rd(440, 118, '13314.7', 'm3', '#A9B8CC', 110)} ${rd(440, 146, f2(qF), 'm3/h', '#7FD4FF', 110)}
+        ${valve(660, 200, ok?0.6:0, 'NC')}
+        ${ctl(620, 142, 'A', '80', f0(pF), 'psig', zc('fuelGasPSIG',pF), '')}
+        ${line('M560 200 V60 H975 M560 110 H975', '#9AD8FF', ok, null, 2)}
+        ${line('M760 200 H975 M840 200 V470 M840 240 H975 M840 300 H975 M840 360 H975 M840 410 H975 M840 470 H975', '#9AD8FF', ok, null, 2)}
+        ${users.map((u,i)=>`<text x="985" y="${[52,102,192,232,292,352,402][i]}" fill="#DCE6F2" font-size="11" text-anchor="end">${u}</text>`).join('')}
+      </g>
+      <!-- gas de instrumentos -->
+      <g class="tw-eq" data-tw-eq="instr">
+        ${selBox('instr', 12, 510, 976, 170)}
+        ${line('M20 640 H975', '#B39DDB', ok, 'twArrG', 3)}<text x="24" y="632" fill="#DCE6F2" font-size="12" font-weight="600">Regeneración</text>
+        <text x="985" y="630" fill="#DCE6F2" font-size="11" text-anchor="end">Gas Instr.</text>
+        ${rd(440, 530, '419.7', 'm3', '#A9B8CC', 110)} ${rd(440, 558, '210.5', 'm3', '#A9B8CC', 110)} ${rd(440, 586, f2(qI), 'm3/h', '#7FD4FF', 110)}
+        ${valve(660, 640, ok?0.6:0, 'NC')}
+        ${ctl(620, 540, 'A', '110', f0(pI), 'psig', zc('instAirPSIG',pI), 'PIC instrumentos')}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- PANEL ---------- */
+  function servEq(C){
+    if(C.kind==='ha' || C.kind==='hb') return { horno:{title:C.title}, entrada:{title:'Retorno de hot oil'}, salida:{title:C.kind==='ha'?'TIC-1101A · Salida':'TIC-1101B · Salida'}, gascomb:{title:'Gas combustible (cascada)'}, otro:{title:'Ir al otro horno'} };
+    if(C.kind==='ho') return { bombas:{title:'P-1101 A/B/C · Bombas'}, tanque:{title:'D82.1101 · Tanque de expansión'}, fic:{title:'FIC-1101 · Caudal total'}, usuarios:{title:'6 usuarios de hot oil'} };
+    return { d823101:{title:'D82.3101 · Scrubber'}, entrada:{title:'Entrada (Salida KTI)'}, comb:{title:'Colector gas combustible'}, instr:{title:'Colector gas de instrumentos'} };
+  }
+  function servVals(C, s){
+    if(C.kind==='ha'){
+      return kpi('Estado', state.hornoA?'EN MARCHA':'APAGADO', '', state.hornoA?'#33D69F':'#8A9BB3') + kpi('Salida', f1(V('hotOilTemp')), '°F', zc('hotOilTemp',V('hotOilTemp'),'#FFB300')) + kpi('Caudal', f1(V('hornoAFlowGPM')), 'USGPM') + kpi('Chimenea', f0(V('stackTempA')), '°F', '#FF7043');
+    }
+    if(C.kind==='hb'){
+      return kpi('Estado', state.hornoB?'EN SERVICIO':'STANDBY', '', state.hornoB?'#33D69F':'#8A9BB3') + kpi('Modo', state.hornoBManual?'MANUAL':'CASCADA', '', state.hornoBManual?'#FFB300':'#33D69F') + kpi('Salida', f1(V('hornoBOutTemp')), '°F', '#FFB300') + kpi('Demanda', f0(V('hotOilDemand')), '%');
+    }
+    if(C.kind==='ho'){
+      if(s==='tanque') return kpi('Nivel', f1(V('lvlD821101')), '%', zc('lvlD821101',V('lvlD821101'),'#38D9A9'));
+      return kpi('Bombas', ['hoA','hoB','hoC'].filter(k=>state.pumps[k].on).length+'/3', '') + kpi('Caudal', f1(V('hotOilFlowGPM')), 'USGPM') + kpi('Suministro', f1(V('hotOilTemp')), '°F', zc('hotOilTemp',V('hotOilTemp'),'#FFB300')) + kpi('Retorno', f1(V('hotOilRetTemp')), '°F', '#FF7043');
+    }
+    if(s==='instr') return kpi('Presión', f0(V('instAirPSIG')), 'psig', zc('instAirPSIG',V('instAirPSIG'))) + kpi('Caudal', f2(V('instFlowM3H')), 'm3/h');
+    return kpi('Entrada', f0(V('fuelInPSIG')), 'psig') + kpi('Colector', f0(V('fuelGasPSIG')), 'psig', zc('fuelGasPSIG',V('fuelGasPSIG'))) + kpi('Caudal', f1(V('fuelFlowM3H')), 'm3/h') + kpi('Nivel D82.3101', f1(V('lvlD823101')), '%', zc('lvlD823101',V('lvlD823101'),'#38D9A9'));
+  }
+  function servCtls(C, s){
+    const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
+    if(C.kind==='ha') return `<div class="tw-ctl-title">Horno líder</div><div class="tw-grid2"><button type="button" class="tw-btn ${state.hornoA?'on':''}" data-tw-act="hornoA">${state.hornoA?'APAGAR':'ENCENDER'}<br><small>${state.hornoA?'EN MARCHA':'APAGADO'}</small></button><button type="button" class="tw-btn" data-tw-act="goto" data-k="horno_b">Al otro horno</button></div>` + trend + `<div class="tw-note">Si se apaga el Horno A, también sale el B (salvo que esté forzado en manual).</div>`;
+    if(C.kind==='hb') return `<div class="tw-ctl-title">Modo</div><div class="tw-grid2"><button type="button" class="tw-btn ${state.hornoBManual?'on':''}" data-tw-act="hornoB">${state.hornoBManual?'Volver a CASCADA':'Forzar MANUAL'}</button><button type="button" class="tw-btn" data-tw-act="goto" data-k="horno_a">Al otro horno</button></div>` + trend + `<div class="tw-note">En cascada arranca solo cuando el Horno A está prendido y la demanda de los reboilers pasa el 70%.</div>`;
+    if(C.kind==='ho'){
+      if(s==='tanque') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD821101">Faceplate D82.1101</button>`;
+      return `<div class="tw-ctl-title">Bombas de hot oil</div><div class="tw-grid2">${pumpBtn('hoA','P-1101A')}${pumpBtn('hoB','P-1101B')}</div><div class="tw-grid2">${pumpBtn('hoC','P-1101C')}</div>` + trend + `<div class="tw-note">Sin circulación de hot oil no calientan los reboilers, el D21.0201 ni el D21.0203. El límite duro de suministro es 515 °F.</div>`;
+    }
+    if(s==='d823101') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD823101">Faceplate LIC-3101</button>`;
+    return trend + `<div class="tw-note">Los acumulados en m3 son los de la pantalla DCS (fijos en el simulador). Con ESD, caen las presiones de gas combustible e instrumentos.</div>`;
+  }
+  function servAct(a, btn){
+    if(a==='hornoA'){ state.hornoA = !state.hornoA; if(!state.hornoA && !state.hornoBManual) state.hornoB = false; addLog(`Horno Hot Oil D24.1101A ${state.hornoA?'ENCENDIDO':'APAGADO'}`, state.hornoA?'ok':'info'); return true; }
+    if(a==='hornoB'){ state.hornoBManual = !state.hornoBManual; state.hornoB = state.hornoBManual; addLog(`Horno D24.1101B pasado a ${state.hornoBManual?'MARCHA MANUAL FORZADA':'CASCADA AUTOMÁTICA'}.`, 'info'); return true; }
+    if(a==='goto'){ twin.area = btn.dataset.k; twin.sel = 'horno'; renderAreas(); return true; }
+    return false;
+  }
+
   /* ===================== MARCO ===================== */
   function renderShell(){
     const root = $('twin-root'); if(!root) return;
@@ -8468,7 +8698,7 @@ setInterval(tickChrom, 1500);
     }
     const C = colOf();
     $('tw-title').textContent = C.title; $('tw-subtitle').textContent = C.sub;
-    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : C.kind==='recont' ? sceneRecont() : C.kind==='sep' ? sceneSep() : C.kind==='comp' ? sceneComp() : C.kind==='gas1' ? sceneGas1() : C.kind==='plant' ? scenePlant() : C.kind==='filt' ? sceneFilt() : C.kind==='tow' ? sceneTow() : sceneRegen();
+    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : C.kind==='recont' ? sceneRecont() : C.kind==='sep' ? sceneSep() : C.kind==='comp' ? sceneComp() : C.kind==='gas1' ? sceneGas1() : C.kind==='plant' ? scenePlant() : C.kind==='filt' ? sceneFilt() : C.kind==='tow' ? sceneTow() : C.kind==='regen' ? sceneRegen() : C.kind==='ha' ? sceneHa() : C.kind==='hb' ? sceneHb() : C.kind==='ho' ? sceneHo() : sceneFuel();
   }
 
   /* ===================== PANEL LATERAL ===================== */
@@ -8481,6 +8711,7 @@ setInterval(tickChrom, 1500);
     if(CRYO.includes(C.kind)) return cryoEq(C);
     if(RECEP.includes(C.kind)) return recepEq(C);
     if(DESH.includes(C.kind)) return deshEq(C);
+    if(SERV.includes(C.kind)) return servEq(C);
     if(C.kind==='col') return {
       columna:{title:`${C.colTag} · ${C.title}`}, alimentacion:{title:`Alimentación desde ${C.feedFrom}`}, venteo:{title:'PIC venteo · Colector de Baja'},
       condensador:{title:`${C.aeroTag} · Condensador de tope`}, acumulador:{title:`${C.accTag} · Acumulador`}, bombas:{title:`${C.pumpTag} · Bombas`},
@@ -8506,6 +8737,7 @@ setInterval(tickChrom, 1500);
     if(CRYO.includes(C.kind)) return cryoVals(C, s);
     if(RECEP.includes(C.kind)) return recepVals(C, s);
     if(DESH.includes(C.kind)) return deshVals(C, s);
+    if(SERV.includes(C.kind)) return servVals(C, s);
     if(C.kind==='col'){
       const reb = state.reboilers[C.reb];
       if(s==='columna') return kpi('Presión', f1(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey))) + kpi('Tope', f1(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey))) + kpi('Nivel fondo', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi(C.reb==='depro'?'Pureza C3':'Pureza C4', f1(V(C.reb==='depro'?'purityC3':'purityC4')), '%', zc(C.reb==='depro'?'purityC3':'purityC4', V(C.reb==='depro'?'purityC3':'purityC4'), '#33D69F'));
@@ -8547,6 +8779,7 @@ setInterval(tickChrom, 1500);
     if(CRYO.includes(C.kind)) return cryoCtls(C, s);
     if(RECEP.includes(C.kind)) return recepCtls(C, s);
     if(DESH.includes(C.kind)) return deshCtls(C, s);
+    if(SERV.includes(C.kind)) return servCtls(C, s);
     const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
     if(C.kind==='col'){
       if(s==='columna') return trend;
@@ -8595,7 +8828,7 @@ setInterval(tickChrom, 1500);
 
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
-    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (todas menos Servicios).</div>`; return; }
+    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (todas las zonas).</div>`; return; }
     const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
     el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
@@ -8614,8 +8847,8 @@ setInterval(tickChrom, 1500);
   /* ===================== ACCIONES ===================== */
   function act(btn){
     const a = btn.dataset.twAct;
-    if(state.esdActive && a!=='vessel'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
-    if(cryoAct(a, btn) || recepAct(a, btn) || deshAct(a, btn)){
+    if(state.esdActive && a!=='vessel' && a!=='goto'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
+    if(cryoAct(a, btn) || recepAct(a, btn) || deshAct(a, btn) || servAct(a, btn)){
       /* maniobra de criogenia ya aplicada */
     } else if(a==='fan'){
       const ae = state.aeros[btn.dataset.ae], i = +btn.dataset.i;
