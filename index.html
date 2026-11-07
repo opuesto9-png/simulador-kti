@@ -8246,6 +8246,190 @@ setInterval(tickChrom, 1500);
     return false;
   }
 
+  /* ===================== DESHIDRATACIÓN ===================== */
+  COLS.tow   = { kind:'tow',   areas:['torres_desh'], title:'Torres Deshidratadoras', sub:'Torres A · B · C (tamiz molecular) · según pantalla DCS', topKeyHist:'h2oPpm', defSel:'torreA' };
+  COLS.regen = { kind:'regen', areas:['gas_regen'],   title:'Gas de Regeneración', sub:'D21.0202 · D82.0202 · D21.0201 · según pantalla DCS', topKeyHist:'coolerOutTemp', defSel:'d820202' };
+  ['tow','regen'].forEach(k=>COLS[k].areas.forEach(a=>{ AREA_COL[a]=k; READY[a]=true; }));
+  const DESH = ['tow','regen'];
+  const STEPS = ['Aislación','Calentamiento','Calentamiento','Enfriamiento 1','Enfriamiento 2','Stand By','Solapamiento'];
+  const hhmm = h => { const m = Math.max(0, Math.round(h*60)); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); };
+
+  // estado de cada torre según el ciclo real del simulador
+  function towersInfo(){
+    const cyc = (typeof TOWER_CYCLE_SEC!=='undefined') ? TOWER_CYCLE_SEC : 600;
+    const within = state.towerTimer % cyc, regenIdx = Math.floor(state.towerTimer / cyc) % 3;
+    return ['A','B','C'].map((nm, i) => {
+      let regen = false, step = -1, label = 'ADSORCION', elapsed = 0;
+      if(state.towerMode==='AUTO'){
+        if(i===regenIdx){ regen = true; step = Math.min(6, Math.floor(within/cyc*7)); label = `${nm}${step+1} ${STEPS[step]}`; elapsed = within/cyc*10.5; }
+        else elapsed = (((regenIdx - i + 3) % 3) - 1) * 10.5 + within/cyc*10.5;
+      } else if(state.manualTowerStep===`REGEN_${nm}`){ regen = true; step = 2; label = `${nm}3 Calentamiento (MAN)`; }
+      else if(state.manualTowerStep==='ADSORCION'){ label = 'ADSORCION (sin regen)'; }
+      return { nm, i, regen, step, label, elapsed: Math.max(0, elapsed) };
+    });
+  }
+
+  /* ---------- TORRES ---------- */
+  function sceneTow(){
+    const r = run(), T = towersInfo();
+    const dpAds = [V('torreAPSID'), V('torreCPSID')]; let k = 0;
+    const dps = T.map(t => t.regen ? V('torreBPSID') : (r ? dpAds[(k++)%2] : 0.1));
+    const xs = [160, 440, 720];
+    const tower = (t, idx) => {
+      const x = xs[idx], heat = t.regen && t.step<=2, cool = t.regen && t.step>2;
+      const bed = heat ? '#FF7043' : cool ? '#4FC3F7' : '#38D9A9';
+      const sel = 'torre'+t.nm;
+      return `<g class="tw-eq" data-tw-eq="${sel}">
+        ${selBox(sel, x-146, 60, 282, 560)}
+        <!-- válvulas de tope -->
+        ${valve(x-28, 120, t.regen?0:1, '', true)} ${valve(x+28, 120, t.regen?1:0, '', true)}
+        ${line(`M${x-28} 80 V100 M${x-28} 140 V160 H${x} V200`, '#FFCC66', r && !t.regen, null, 3)}
+        ${line(`M${x+28} 100 V70 M${x+28} 140 V160`, t.regen?'#FF7043':'#5E6E85', t.regen && r, null, 2)}
+        ${rd(x-46, 168, f2(dps[idx]), 'PSID', t.regen?'#FFCC66':'#7FD4FF', 92)}
+        <!-- torre -->
+        <ellipse cx="${x}" cy="436" rx="44" ry="10" fill="#000" opacity=".4"/>
+        <rect x="${x-32}" y="230" width="64" height="200" fill="url(#twMetal)"/>
+        <path d="M${x-32} 230 Q${x} 196 ${x+32} 230" fill="url(#twMetalH)"/>
+        <path d="M${x-32} 430 Q${x} 456 ${x+32} 430" fill="#26313F"/>
+        <rect x="${x-14}" y="250" width="28" height="160" fill="#0B1220" stroke="${bed}" stroke-dasharray="3 3"/>
+        <rect x="${x-14}" y="${410-160*(t.regen?0.5:Math.max(0.15,1-state.sieveSaturation))}" width="28" height="${160*(t.regen?0.5:Math.max(0.15,1-state.sieveSaturation))}" fill="${bed}" opacity=".55"/>
+        <circle cx="${x}" cy="244" r="9" fill="${t.regen?'#FFCC66':'#33D69F'}" stroke="#0A0F18"/>
+        <text x="${x}" y="350" fill="#DCE6F2" font-size="22" font-weight="800" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="4">${t.nm}</text>
+        <!-- reloj -->
+        <rect x="${x-142}" y="300" width="104" height="40" rx="4" fill="#0F1A2B" stroke="#24364F"/>
+        <text x="${x-136}" y="315" fill="#8A9BB3" font-family="${MONO}" font-size="9">${t.regen?'T. Mínimo':'T. Adsorc.'}</text>
+        <text x="${x-44}" y="315" fill="#FFB300" font-family="${MONO}" font-size="10" text-anchor="end">${t.regen?'3:56':'21:00'}</text>
+        <text x="${x-136}" y="332" fill="#8A9BB3" font-family="${MONO}" font-size="9">Transc.</text>
+        <text x="${x-44}" y="332" fill="#7FD4FF" font-family="${MONO}" font-size="10" text-anchor="end">${hhmm(t.elapsed)}</text>
+        <!-- pasos -->
+        ${STEPS.map((s,j)=>`<text x="${x+42}" y="${252+j*15}" fill="${t.step===j?'#5EF2B8':'#5E6E85'}" font-size="10" font-weight="${t.step===j?700:400}">${t.step===j?'▸ ':''}${t.nm}${j+1} ${s}</text>`).join('')}
+        <text x="${x+42}" y="${252+7*15+6}" fill="${t.regen?'#FFCC66':'#33D69F'}" font-size="11" font-weight="700">${t.regen?(heat?'CALENTANDO':'ENFRIANDO'):'ADSORCION'}</text>
+        <!-- válvulas de fondo -->
+        ${line(`M${x} 456 V480`, '#FFCC66', r, null, 3)}
+        ${valve(x-28, 500, t.regen?0:1, '', true)} ${valve(x+28, 500, t.regen?1:0, '', true)}
+        ${line(`M${x-28} 520 V600`, '#FFCC66', r && !t.regen, null, 3)}
+        ${line(`M${x+28} 520 V560`, t.regen?'#FF7043':'#5E6E85', t.regen && r, null, 2)}
+      </g>`;
+    };
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Torres deshidratadoras">${DEFS}
+      ${line('M20 80 H900', '#FFCC66', r, null, 4)}<text x="24" y="72" fill="#DCE6F2" font-size="12" font-weight="600">desde Intercambiador</text>
+      ${line('M120 70 H975', '#FF7043', r, null, 2)}${off(70,'D21.0202')}
+      ${rd(520, 20, f2(r?-0.01:0), 'PSID', '#7FD4FF', 90)} ${rd(620, 20, f2(r?115.88:65), '°F', '#FFCC66', 90)} ${rd(860, 20, f2(V('regenInTemp')), '°F', '#FF7043', 96)}
+      ${T.map(tower).join('')}
+      ${line('M120 560 H975', '#FF7043', r, null, 2)}${off(560,'D21.0201')}
+      ${line('M120 600 H975', '#FFCC66', r, 'twArrG', 4)}${off(600,'D21.0301')}
+      ${rd(560, 532, f2(V('regenHeaterOutTemp')), '°F', '#FF7043', 90)} ${rd(560, 612, f2(V('torresOutTemp')), '°F', '#FFCC66', 90)}
+      <g class="tw-eq" data-tw-eq="rocio">
+        ${selBox('rocio', 870, 150, 124, 140)}
+        <text x="880" y="172" fill="#DCE6F2" font-size="11" font-weight="600">Rocío salida</text>
+        ${rd(880, 184, f2(V('dewPointF')), '°F', zc('waterDewC',V('waterDewC')), 104)}
+        ${rd(880, 212, f2(V('waterDewC')), '°C', zc('waterDewC',V('waterDewC')), 104)}
+        ${rd(880, 250, f2(V('h2oPpm')), 'ppm', zc('h2oPpm',V('h2oPpm')), 104)}
+      </g>
+      <text x="24" y="664" fill="#8A9BB3" font-size="12">Modo <tspan fill="${state.towerMode==='AUTO'?'#33D69F':'#FFB300'}" font-weight="700">${state.towerMode}</tspan>${state.towerMode==='MANUAL'?' · paso '+state.manualTowerStep:''}</text>
+    </svg>`;
+  }
+
+  /* ---------- GAS DE REGENERACIÓN ---------- */
+  function sceneRegen(){
+    const r = run(), act = r && (state.towerMode==='AUTO' || state.manualTowerStep!=='ADSORCION');
+    const tIn = V('regenInTemp'), tC = V('coolerOutTemp'), lvl = Math.max(0,Math.min(100,V('lvlD820202'))), q = V('regenFlowMMSCFD');
+    const hoIn = V('regenTemp'), tH = V('regenHeaterOutTemp'), vs = state.vessels.lvlD820202;
+    const ho = hoIn > 300;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Gas de regeneración">${DEFS}${FLOOR}
+      <!-- enfriador D21.0202 -->
+      <g class="tw-eq" data-tw-eq="d210202">
+        ${selBox('d210202', 12, 30, 400, 210)}
+        ${line('M20 60 H220 V100', '#FF7043', act, null, 3)}<text x="24" y="52" fill="#DCE6F2" font-size="12" font-weight="600">Torres Desh.</text>
+        ${rd(250, 50, f2(tIn), '°F', '#FF7043', 92)}
+        ${line('M20 100 H120', '#4FC3F7', state.coolerCap>0, null, 3)}<text x="24" y="92" fill="#DCE6F2" font-size="12" font-weight="600">Agua</text>
+        <ellipse cx="130" cy="122" rx="10" ry="20" fill="#55677F"/><rect x="130" y="102" width="150" height="40" fill="url(#twMetalH)"/><ellipse cx="280" cy="122" rx="10" ry="20" fill="#8FA3BD"/>
+        <rect x="144" y="108" width="122" height="28" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="4 3"/>
+        <g stroke="${state.coolerCap>0?'#4FC3F7':'#3C4E68'}" stroke-width="2"><path d="M148 114 H262"/><path d="M148 122 H262"/><path d="M148 130 H262"/></g>
+        <text x="205" y="98" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D21.0202</text>
+        ${line('M150 142 V220 H20', '#4FC3F7', state.coolerCap>0, 'twArrB', 3)}<text x="24" y="212" fill="#DCE6F2" font-size="12" font-weight="600">Agua</text>
+        ${valve(150, 190, state.coolerCap/100, 'NO', true)}
+        ${ctl(40, 146, 'M', '75.00', f2(tC), '°F', '#7FD4FF', 'TIC-0202')}
+        ${rd(310, 210, f2((tC-32)/1.8), '°C', '#7FD4FF', 92)}
+      </g>
+      ${line('M280 130 H300 V200 H480', '#FFCC66', act, 'twArrG', 3)}
+      <!-- separador D82.0202 -->
+      <g class="tw-eq" data-tw-eq="d820202">
+        ${selBox('d820202', 360, 100, 230, 300)}
+        ${vDrum(480, 150, 70, 180, lvl, 'D82.0202', zc('lvlD820202',lvl,'#38D9A9'))}
+        ${ctl(370, 250, 'A', f1(vs.sp), f1(lvl), '%', zc('lvlD820202',lvl,'#38D9A9'), 'LIC-0202')}
+        ${line('M515 344 V370 H380 V390', '#38D9A9', lvl>vs.sp, null, 2)}${valve(440, 370, lvl>vs.sp?0.6:0, 'NC')}
+      </g>
+      <!-- FIC y destinos -->
+      <g class="tw-eq" data-tw-eq="fic">
+        ${selBox('fic', 590, 40, 400, 160)}
+        ${line('M515 140 V110 H975', '#FFCC66', act, 'twArrG', 3)}
+        ${valve(680, 110, act?0.7:0, 'NO')}
+        ${ctl(620, 50, 'A', '5.500', f2(q), 'MMSCFD', '#7FD4FF', 'FIC-0202')}
+        ${line('M840 110 V60 H975 M840 85 H975', '#FFCC66', act, null, 2)}
+        <text x="985" y="54" fill="#DCE6F2" font-size="11" text-anchor="end">Ent. Planta</text><text x="985" y="80" fill="#DCE6F2" font-size="11" text-anchor="end">Sal. Planta</text><text x="985" y="102" fill="#DCE6F2" font-size="11" text-anchor="end">DewPoint</text>
+        ${line('M700 110 V160 H975', '#FFCC66', false, null, 2)}${valve(880, 160, 0.2, '')}
+        <text x="985" y="152" fill="#DCE6F2" font-size="11" text-anchor="end">Gas Combus.</text>
+      </g>
+      <!-- recomp, filtro y calentador D21.0201 -->
+      ${line('M20 430 H160 V470', '#FFCC66', act, null, 3)}<text x="24" y="422" fill="#DCE6F2" font-size="12" font-weight="600">Recomp</text>
+      ${rd(120, 392, f2(V('rcAeroTemp')), '°F', '#FFCC66', 92)}
+      ${filterV(140, 470, 40, 90, 'Filtro Gas')}
+      ${line('M180 490 H300 V600 H720 V560', '#FFCC66', act, null, 3)}${valve(340, 600, act?1:0, '', true)}${valve(460, 600, act?1:0, '', true)}
+      <g class="tw-eq" data-tw-eq="d210201">
+        ${selBox('d210201', 600, 230, 390, 420)}
+        <rect x="680" y="420" width="12" height="140" fill="url(#twMetal)"/><rect x="740" y="420" width="12" height="140" fill="url(#twMetal)"/>
+        <rect x="660" y="400" width="112" height="24" rx="8" fill="url(#twMetalH)"/>
+        <path d="M686 430 V550 M746 430 V550" stroke="${ho?'#FF7043':'#3C4E68'}" stroke-width="3"/>
+        <text x="716" y="590" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D21.0201</text>
+        ${line('M975 300 H716 V400', '#FFB300', ho, null, 3)}<text x="985" y="292" fill="#DCE6F2" font-size="11" text-anchor="end">Hot Oil</text>
+        ${line('M752 500 H975', '#FF7043', ho, 'twArrG', 3)}<text x="985" y="492" fill="#DCE6F2" font-size="11" text-anchor="end">Hot Oil</text>
+        ${valve(860, 500, ho?0.6:0, 'NC')}
+        ${rd(860, 236, f2(hoIn), '°F', '#FFB300', 104)} ${rd(860, 262, f2(ho?hoIn-0.4:hoIn), '°F', '#FFB300', 104)}
+        ${ctl(780, 340, 'M', '100.00', f2(tH), '°F', '#FF7043', 'TIC-0201')}
+        ${line('M740 560 V640 H975', '#FF7043', act && ho, 'twArrG', 3)}<text x="985" y="630" fill="#DCE6F2" font-size="11" text-anchor="end">Regen Torres</text>
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- PANEL ---------- */
+  function deshEq(C){
+    if(C.kind==='tow') return { torreA:{title:'Torre A'}, torreB:{title:'Torre B'}, torreC:{title:'Torre C'}, rocio:{title:'Rocío y humedad de salida'} };
+    return { d210202:{title:'D21.0202 · Enfriador por agua'}, d820202:{title:'D82.0202 · Separador'}, fic:{title:'FIC-0202 · Caudal de regeneración'}, d210201:{title:'D21.0201 · Calentador hot oil'} };
+  }
+  function deshVals(C, s){
+    if(C.kind==='tow'){
+      if(s==='rocio') return kpi('Rocío', f1(V('waterDewC')), '°C', zc('waterDewC',V('waterDewC'))) + kpi('Rocío', f1(V('dewPointF')), '°F') + kpi('Agua', f2(V('h2oPpm')), 'ppm', zc('h2oPpm',V('h2oPpm'))) + kpi('Saturación tamiz', f0(state.sieveSaturation*100), '%', state.sieveSaturation>0.6?'#FF6B6B':state.sieveSaturation>0.35?'#FFCC66':'#33D69F');
+      const t = towersInfo().find(x=>'torre'+x.nm===s) || towersInfo()[0];
+      return kpi('Estado', t.regen?(t.step<=2?'CALENTANDO':'ENFRIANDO'):'ADSORCIÓN', '', t.regen?'#FFCC66':'#33D69F') + kpi('Paso', t.step>=0?`${t.nm}${t.step+1}`:'—', '', '#DCE6F2') + kpi('Transcurrido', hhmm(t.elapsed), 'h') + kpi('Modo', state.towerMode, '', state.towerMode==='AUTO'?'#33D69F':'#FFB300');
+    }
+    if(s==='d210202') return kpi('Salida', f2(V('coolerOutTemp')), '°F', '#7FD4FF') + kpi('Entrada', f2(V('regenInTemp')), '°F', '#FF7043') + kpi('Capacidad', f0(state.coolerCap), '%', '#FFB300');
+    if(s==='d820202') return kpi('Nivel', f1(V('lvlD820202')), '%', zc('lvlD820202',V('lvlD820202'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820202.sp), '%', '#FFB300');
+    if(s==='fic') return kpi('Caudal', f2(V('regenFlowMMSCFD')), 'MMSCFD', '#7FD4FF') + kpi('SP', '5.500', 'MMSCFD', '#FFB300');
+    return kpi('Hot oil', f1(V('regenTemp')), '°F', '#FFB300') + kpi('TIC-0201 PV', f2(V('regenHeaterOutTemp')), '°F', '#FF7043') + kpi('SP (manual)', '100', '°F', '#FFB300');
+  }
+  function deshCtls(C, s){
+    const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
+    if(C.kind==='tow'){
+      const mbtn = m => `<button type="button" class="tw-btn ${state.towerMode===m?'on':''}" data-tw-act="tmode" data-k="${m}">Modo ${m}</button>`;
+      let h = `<div class="tw-ctl-title">Secuencia</div><div class="tw-grid2">${mbtn('AUTO')}${mbtn('MANUAL')}</div>`;
+      if(state.towerMode==='MANUAL') h += `<div class="tw-ctl-title">Paso manual</div><div class="tw-grid2">${['ADSORCION','REGEN_A','REGEN_B','REGEN_C'].map(k=>`<button type="button" class="tw-btn ${state.manualTowerStep===k?'on':''}" data-tw-act="tman" data-k="${k}">${k==='ADSORCION'?'Aislar regen.':'Regen. '+k.slice(-1)}</button>`).join('')}</div>`;
+      return h + (s==='rocio' ? trend : '') + `<div class="tw-note">En AUTO, siempre hay dos torres secando y una regenerando (calentamiento y enfriamiento). Si la regeneración se corta, el tamiz se satura y sube el agua en el gas.</div>`;
+    }
+    if(s==='d210202') return `<div class="tw-ctl-title">Capacidad del enfriador</div>` + step('cooler', f0(state.coolerCap), '%', '−10', '+10') + trend;
+    if(s==='d820202') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820202">Faceplate LIC-0202</button><button type="button" class="tw-btn" data-tw-act="drain0202">Purgar a 2.3%</button>`;
+    if(s==='fic') return `<div class="tw-note">El gas de regeneración se toma de la salida de los recompresores, se calienta en D21.0201, regenera la torre, se enfría en D21.0202 y separa el agua en D82.0202.</div>`;
+    return `<div class="tw-note">El calentador usa hot oil a ~515 °F. Sin hornos en marcha no hay regeneración en caliente.</div>`;
+  }
+  function deshAct(a, btn){
+    const d = +btn.dataset.d, k = btn.dataset.k;
+    if(a==='tmode'){ state.towerMode = k; addLog(`Torres deshidratadoras en MODO ${k}.`, 'info'); return true; }
+    if(a==='tman'){ state.manualTowerStep = k; addLog(`Secuencia manual de torres fijada en: ${k}`, 'info'); return true; }
+    if(a==='cooler'){ state.coolerCap = Math.max(0, Math.min(100, state.coolerCap + d*10)); addLog(`Capacidad del enfriador D21.0202 ajustada a ${state.coolerCap}%`, 'info'); return true; }
+    if(a==='drain0202'){ state.vessels.lvlD820202.pv = 2.3; addLog('Separador de gas de regeneración D82.0202 drenado a 2.3%.','ok'); return true; }
+    return false;
+  }
+
   /* ===================== MARCO ===================== */
   function renderShell(){
     const root = $('twin-root'); if(!root) return;
@@ -8284,7 +8468,7 @@ setInterval(tickChrom, 1500);
     }
     const C = colOf();
     $('tw-title').textContent = C.title; $('tw-subtitle').textContent = C.sub;
-    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : C.kind==='recont' ? sceneRecont() : C.kind==='sep' ? sceneSep() : C.kind==='comp' ? sceneComp() : C.kind==='gas1' ? sceneGas1() : C.kind==='plant' ? scenePlant() : sceneFilt();
+    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : C.kind==='recont' ? sceneRecont() : C.kind==='sep' ? sceneSep() : C.kind==='comp' ? sceneComp() : C.kind==='gas1' ? sceneGas1() : C.kind==='plant' ? scenePlant() : C.kind==='filt' ? sceneFilt() : C.kind==='tow' ? sceneTow() : sceneRegen();
   }
 
   /* ===================== PANEL LATERAL ===================== */
@@ -8296,6 +8480,7 @@ setInterval(tickChrom, 1500);
     const C = colOf();
     if(CRYO.includes(C.kind)) return cryoEq(C);
     if(RECEP.includes(C.kind)) return recepEq(C);
+    if(DESH.includes(C.kind)) return deshEq(C);
     if(C.kind==='col') return {
       columna:{title:`${C.colTag} · ${C.title}`}, alimentacion:{title:`Alimentación desde ${C.feedFrom}`}, venteo:{title:'PIC venteo · Colector de Baja'},
       condensador:{title:`${C.aeroTag} · Condensador de tope`}, acumulador:{title:`${C.accTag} · Acumulador`}, bombas:{title:`${C.pumpTag} · Bombas`},
@@ -8320,6 +8505,7 @@ setInterval(tickChrom, 1500);
     const C = colOf(), s = twin.sel;
     if(CRYO.includes(C.kind)) return cryoVals(C, s);
     if(RECEP.includes(C.kind)) return recepVals(C, s);
+    if(DESH.includes(C.kind)) return deshVals(C, s);
     if(C.kind==='col'){
       const reb = state.reboilers[C.reb];
       if(s==='columna') return kpi('Presión', f1(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey))) + kpi('Tope', f1(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey))) + kpi('Nivel fondo', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi(C.reb==='depro'?'Pureza C3':'Pureza C4', f1(V(C.reb==='depro'?'purityC3':'purityC4')), '%', zc(C.reb==='depro'?'purityC3':'purityC4', V(C.reb==='depro'?'purityC3':'purityC4'), '#33D69F'));
@@ -8360,6 +8546,7 @@ setInterval(tickChrom, 1500);
     const C = colOf(), s = twin.sel;
     if(CRYO.includes(C.kind)) return cryoCtls(C, s);
     if(RECEP.includes(C.kind)) return recepCtls(C, s);
+    if(DESH.includes(C.kind)) return deshCtls(C, s);
     const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
     if(C.kind==='col'){
       if(s==='columna') return trend;
@@ -8408,7 +8595,7 @@ setInterval(tickChrom, 1500);
 
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
-    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (Recepción, Criogenia o Fraccionamiento).</div>`; return; }
+    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (todas menos Servicios).</div>`; return; }
     const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
     el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
@@ -8428,7 +8615,7 @@ setInterval(tickChrom, 1500);
   function act(btn){
     const a = btn.dataset.twAct;
     if(state.esdActive && a!=='vessel'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
-    if(cryoAct(a, btn) || recepAct(a, btn)){
+    if(cryoAct(a, btn) || recepAct(a, btn) || deshAct(a, btn)){
       /* maniobra de criogenia ya aplicada */
     } else if(a==='fan'){
       const ae = state.aeros[btn.dataset.ae], i = +btn.dataset.i;
