@@ -7888,6 +7888,364 @@ setInterval(tickChrom, 1500);
     return false;
   }
 
+  /* ===================== RECEPCIÓN ===================== */
+  COLS.sep   = { kind:'sep',   areas:['sep_entrada'],           title:'Separadores de Entrada', sub:'V-101 · V-102 · V-103 · F-101 · F-102 · según pantalla DCS', topKeyHist:'psigBajaP', defSel:'v101' };
+  COLS.comp  = { kind:'comp',  areas:['comp_entrada'],          title:'Compresión Gas de Entrada', sub:'XA0101A–E (Mc1·Mc2·Mc3·Mc5·Mc6) · según pantalla DCS', topKeyHist:'psigColectorComp', defSel:'mc1' };
+  COLS.gas1  = { kind:'gas1',  areas:['sep_salida_comp'],       title:'Separador Salida Compresores', sub:'GAS-001 · D21.3101 · según pantalla DCS', topKeyHist:'gas001Temp', defSel:'gas001' };
+  COLS.plant = { kind:'plant', areas:['entrada_salida_planta'], title:'Entrada y Salida de Planta', sub:'Colector de entrada · D95.0303B · PM-351 · según pantalla DCS', topKeyHist:'salesFlow', defSel:'entrada' };
+  COLS.filt  = { kind:'filt',  areas:['filtros_entrada'],       title:'Filtros de Gas de Entrada', sub:'D95.0101A/B · D21.0203 · según pantalla DCS', topKeyHist:'filtrosPSID', defSel:'filtros' };
+  ['sep','comp','gas1','plant','filt'].forEach(k=>COLS[k].areas.forEach(a=>{ AREA_COL[a]=k; READY[a]=true; }));
+  const RECEP = ['sep','comp','gas1','plant','filt'];
+
+  function hVessel(x, y, w, h, lvl, tag, lvlColor){ // separador horizontal con nivel
+    return hDrum(x, y, w, h, lvl, '', lvlColor) + `<text x="${x+w/2}" y="${y+h/2-6}" fill="#DCE6F2" font-size="15" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">${tag}</text>`;
+  }
+  function filterH(x, y, w, h, tag){
+    return `<ellipse cx="${x}" cy="${y+h/2}" rx="${h*0.2}" ry="${h/2}" fill="#55677F"/><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#twMetalH)"/><ellipse cx="${x+w}" cy="${y+h/2}" rx="${h*0.2}" ry="${h/2}" fill="#8FA3BD"/>
+      <g stroke="#26313F" stroke-width="2">${[0.25,0.45,0.65].map(f=>`<path d="M${x+w*f} ${y+4} V${y+h-4}"/>`).join('')}</g>
+      <path d="M${x+10} ${y+h} v12 M${x+w-10} ${y+h} v12" stroke="#3C4E68" stroke-width="4"/>
+      <text x="${x+w/2}" y="${y+h/2+5}" fill="#DCE6F2" font-size="14" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">${tag}</text>`;
+  }
+  function filterV(x, y, w, h, tag){
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#twMetal)"/><rect x="${x-4}" y="${y-6}" width="${w+8}" height="8" fill="#8FA3BD"/><rect x="${x-4}" y="${y+h-2}" width="${w+8}" height="8" fill="#8FA3BD"/>
+      <rect x="${x+w*0.3}" y="${y+12}" width="${w*0.4}" height="${h-24}" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="3 3"/>
+      <text x="${x+w/2}" y="${y+h+26}" fill="#DCE6F2" font-size="12" font-weight="700" text-anchor="middle">${tag}</text>`;
+  }
+
+  /* ---------- SEPARADORES DE ENTRADA ---------- */
+  function sceneSep(){
+    const r = run(), vv = state.valves;
+    const pB = V('psigBajaP'), pM = V('psigMediaP'), pA = V('psigAltaP');
+    const qB = V('flowBajaM3H'), qA = V('flowAltaM3H');
+    const l1 = V('lvlV101'), l2 = V('lvlV102'), l3 = V('lvlV103');
+    const cB = zc('psigBajaP',pB), cA = zc('psigAltaP',pA);
+    const row = (key, y, tag, ftag, src, pIn, pSep, lvl, cP, srcPsig) => {
+      const open = vv[key];
+      return `<g class="tw-eq" data-tw-eq="${key}">
+        ${selBox(key, 12, y-58, 476, 112)}
+        ${line(`M20 ${y} H250`, '#FFCC66', open && r, null, 4)}
+        <text x="24" y="${y+22}" fill="#DCE6F2" font-size="12" font-weight="600">${src}</text>
+        ${valve(70, y-32, 1, 'NO', true)} ${rd(96, y-50, srcPsig, 'psig', '#7FD4FF', 84)}
+        ${valve(230, y, open?1:0, '')}<text x="230" y="${y+30}" fill="${open?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="9" text-anchor="middle">${open?'ABIERTA':'CERRADA'}</text>
+        ${hVessel(280, y-26, 150, 52, Math.max(0,Math.min(100,lvl)), tag, '#38D9A9')}
+        ${rd(300, y-56, f1(pSep), 'PSI', cP, 84)}
+        ${rd(300, y+32, f1(lvl), '%', zc('lvl'+tag.replace('-',''),lvl,'#38D9A9'), 84)}
+        <text x="256" y="${y+48}" fill="#5E6E85" font-size="10">PAHH</text>
+      </g>`;
+    };
+    const tot = qB + qA;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Separadores de entrada">${DEFS}
+      ${row('v101', 120, 'V-101', 'F-101', 'C-201 DP', 28, pB, l1, cB, f1(r?28:0))}
+      ${row('v102', 300, 'V-102', 'F-102', 'V-201 DP', 5.5, pM, l2, '#7FD4FF', f1(r?5.5:0))}
+      ${row('v103', 480, 'V-103', '', 'PC3', 849, pA, l3, cA, f0(r?849:0))}
+      <!-- F-101 y salida baja a compresión -->
+      <g class="tw-eq" data-tw-eq="f101">
+        ${selBox('f101', 500, 54, 490, 160)}
+        ${line('M430 120 H510', '#FFCC66', vv.v101 && r, null, 4)}
+        ${filterH(510, 96, 130, 48, 'F-101')}
+        ${rd(540, 64, f2(V('f101DP')), 'PSID', zc('f101DP',V('f101DP')), 86)}
+        ${line('M650 120 H700 V90 H975', '#FFCC66', vv.v101 && r, 'twArrG', 3)}${line('M700 120 V150 H975', '#FFCC66', vv.v101 && r, 'twArrG', 3)}
+        ${valve(730, 90, 1, 'NO')}${valve(730, 150, 1, 'NO')}
+        ${rd(780, 70, f1(qB*0.505), 'M3/H', '#7FD4FF', 96)} ${rd(780, 160, f1(qB*0.487), 'M3/H', '#7FD4FF', 96)}
+        ${ctl(880, 40, 'A', f2(state.lowSepSP), f2(pB), 'psig', cB, 'PI5107')}
+        <text x="985" y="108" fill="#DCE6F2" font-size="11" text-anchor="end">Compresión</text><text x="985" y="168" fill="#DCE6F2" font-size="11" text-anchor="end">Compresión</text>
+        ${rd(780, 188, f1(qB), 'M3/H', '#7FD4FF', 96)}
+      </g>
+      <!-- F-102 y salida media -->
+      <g class="tw-eq" data-tw-eq="f102">
+        ${selBox('f102', 500, 230, 490, 150)}
+        ${line('M430 300 H510', '#FFCC66', vv.v102 && r, null, 4)}
+        ${filterH(510, 276, 130, 48, 'F-102')}
+        ${line('M650 300 H975', '#FFCC66', vv.v102 && r, 'twArrG', 3)}
+        <text x="985" y="290" fill="#DCE6F2" font-size="11" text-anchor="end">Compresión</text>
+        ${rd(540, 244, '70 / 30', '% BM', '#DCE6F2', 96)}
+        ${ctl(700, 318, 'A', '100.0', f1(vv.v102&&r?5.9:0), 'M3/H', '#7FD4FF', '')}
+        ${ctl(830, 318, 'M', '285', f0(pM), 'psig', '#7FD4FF', 'PIC6205')}
+      </g>
+      <!-- V-103 a proceso -->
+      <g class="tw-eq" data-tw-eq="proceso">
+        ${selBox('proceso', 500, 430, 490, 160)}
+        ${line('M430 480 H975', '#FFCC66', vv.v103 && r, 'twArrG', 4)}
+        <text x="985" y="470" fill="#DCE6F2" font-size="11" text-anchor="end">Proceso</text>
+        ${rd(560, 496, f1(qA), 'M3/H', '#7FD4FF', 104)} ${rd(680, 496, f1(V('inletFlow')), 'MMSCFD', '#7FD4FF', 120)}
+        ${rd(820, 496, f1(tot), 'M3/H tot', '#7FD4FF', 120)}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- COMPRESIÓN ---------- */
+  const MCL = [['mc1','XA0101A'],['mc2','XA0101B'],['mc3','XA0101C'],['mc5','XA0101D'],['mc6','XA0101E']];
+  function sceneComp(){
+    const r = run(), rpm = V('rpmComp'), pD = V('psigColectorComp'), ae = state.aeros.comp;
+    const any = MC_KEYS.some(k=>state.compressors[k]);
+    const unit = ([k, tag], i) => {
+      const on = state.compressors[k], y = 110 + i*100;
+      return `<g class="tw-eq" data-tw-eq="${k}">
+        ${selBox(k, 270, y-40, 400, 86)}
+        ${line(`M250 ${y} H300`, '#FFCC66', on && r, null, 3)}
+        <path d="M300 ${y-20} L350 ${y-10} L350 ${y+10} L300 ${y+20} Z" fill="${on?'url(#twMetalH)':'#2A3442'}" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2"/>
+        <circle cx="325" cy="${y}" r="8" fill="#0B1220" stroke="${on?'#33D69F':'#5E6E85'}"/>
+        <g class="${on?'tw-fan':''}" style="transform-origin:325px ${y}px"><path d="M325 ${y} l6 -3 M325 ${y} l-6 -3 M325 ${y} v7" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2" stroke-linecap="round"/></g>
+        <text x="370" y="${y-24}" fill="${on?'#DCE6F2':'#8A9BB3'}" font-size="12" font-weight="700">${tag}</text>
+        <text x="370" y="${y+34}" fill="${on?'#33D69F':'#8A9BB3'}" font-family="${MONO}" font-size="11" font-weight="700">${on?'MARCHA':'STOP'}</text>
+        ${line(`M350 ${y} H470`, '#FFCC66', on && r, null, 3)}
+        <rect x="470" y="${y-10}" width="90" height="20" rx="3" fill="#26313F" stroke="${on?'#FFCC66':'#3C4E68'}"/>
+        <g stroke="${on?'#FFCC66':'#3C4E68'}" stroke-width="1.5">${[480,495,510,525,540,550].map(xx=>`<path d="M${xx} ${y-8} V${y+8}"/>`).join('')}</g>
+        <ellipse cx="515" cy="${y+20}" rx="22" ry="5" fill="#0B1220" stroke="${on?'#4FC3F7':'#3C4E68'}"/>
+        <g class="${on?'tw-fan':''}" style="transform-origin:515px ${y+20}px"><path d="M515 ${y+20} l14 -1 M515 ${y+20} l-12 3" stroke="${on?'#7FD4FF':'#4E6380'}" stroke-width="2.5" stroke-linecap="round"/></g>
+        ${line(`M560 ${y} H640`, '#FFCC66', on && r, null, 3)}
+        ${k==='mc6' && !on ? `<path d="M362 ${y+10} l8 -14 l8 14 z" fill="#FFCC66" stroke="#0A0F18"/>` : ''}
+      </g>`;
+    };
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Compresión gas de entrada">${DEFS}
+      <!-- succión -->
+      <g class="tw-eq" data-tw-eq="succion">
+        ${selBox('succion', 12, 40, 250, 600)}
+        ${line('M20 80 H250 V610', '#FFCC66', any && r, null, 4)}
+        <text x="24" y="72" fill="#DCE6F2" font-size="12" font-weight="600">BAJA</text>
+        ${line('M20 120 H200', '#FFCC66', state.valves.v102 && r, null, 3)}
+        <text x="24" y="112" fill="#DCE6F2" font-size="12" font-weight="600">MEDIA</text>
+        ${valve(130, 50, 1, '')}${valve(200, 50, 1, '')}
+        ${rd(130, 160, f2(V('py5107')), 'PY-5107', zc('py5107',V('py5107')), 110)}
+        ${ctl(30, 230, 'M', '285', '3', 'psig', '#7FD4FF', 'SS-5207')}
+        ${ctl(30, 320, 'M', '21', f0(V('py5107')), 'psig', '#7FD4FF', '')}
+        ${ctl(30, 420, 'A', f2(state.lowSepSP*0.75), f2(V('py5107')*0.98), 'psig', '#7FD4FF', '')}
+        ${valve(200, 520, 0, 'NC')}
+      </g>
+      ${rd(380, 30, f2(rpm), 'RPM', zc('rpmComp',rpm,'#33D69F'), 120)}
+      ${MCL.map(unit).join('')}
+      <!-- colector de descarga -->
+      ${line('M640 110 V560', '#FFCC66', any && r, null, 5)}
+      <text x="660" y="400" fill="#8A9BB3" font-size="10" transform="rotate(90 660 400)">COLECTOR DE DESCARGA</text>
+      <g class="tw-eq" data-tw-eq="descarga">
+        ${selBox('descarga', 680, 40, 310, 320)}
+        ${line('M640 150 H975', '#FFCC66', any && r, 'twArrG', 4)}
+        <text x="985" y="140" fill="#DCE6F2" font-size="11" text-anchor="end">Separador</text>
+        ${line('M700 150 V80 H975', '#4FC3F7', pD>900, 'twArrB', 3)}${valve(860, 80, pD>900?0.6:0, 'NC')}
+        <text x="985" y="70" fill="#DCE6F2" font-size="11" text-anchor="end">VENTEO</text>
+        ${ctl(700, 100, 'A', '900', f0(pD), 'psig', zc('psigColectorComp',pD), '')}
+        ${ctl(760, 190, 'M', '90.00', f2(ae.pv), '°F', '#FFCC66', 'TI-0101')}
+        ${ctl(760, 250, 'M', '90.00', f2(ae.pv), '°F', '#FFCC66', '')}
+        ${rd(760, 310, f2(V('inletFlow')), 'MMSCFD', '#7FD4FF', 120)}
+      </g>
+      ${line('M640 560 V640 H820 V600', '#FFCC66', false, null, 3)}${valve(720, 640, 0, 'NC')}
+      <g class="tw-eq" data-tw-eq="aero">
+        ${selBox('aero', 690, 380, 300, 120)}
+        ${aero2x2(700, 400, ae, null, '')}
+        <text x="710" y="490" fill="${ae.fans.some(Boolean)?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11">Aero TI-0101 (sim.) · ${ae.fans.filter(Boolean).length}/4 · ${ae.mode}</text>
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- SEPARADOR SALIDA COMPRESORES ---------- */
+  function sceneGas1(){
+    const r = run(), p = V('psigGas001'), t = V('gas001Temp'), cw = V('coolingWaterGPM'), lvl = Math.max(0,Math.min(100,V('lvlGas001')));
+    const any = MC_KEYS.some(k=>state.compressors[k]);
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Separador salida compresores">${DEFS}${FLOOR}
+      ${line('M20 250 H650', '#FFCC66', any && r, 'twArrG', 4)}
+      <text x="24" y="240" fill="#DCE6F2" font-size="12" font-weight="600">Compresores PC1</text>
+      ${valve(450, 250, any?1:0, '')}
+      <g class="tw-eq" data-tw-eq="d213101">
+        ${selBox('d213101', 12, 270, 560, 230)}
+        ${line('M260 250 V330', '#FFCC66', any && r, null, 3)}
+        <ellipse cx="200" cy="350" rx="10" ry="22" fill="#55677F"/><rect x="200" y="328" width="200" height="44" fill="url(#twMetalH)"/><ellipse cx="400" cy="350" rx="10" ry="22" fill="#8FA3BD"/>
+        <rect x="214" y="335" width="172" height="30" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="4 3"/>
+        <g stroke="${cw>1?'#4FC3F7':'#3C4E68'}" stroke-width="2"><path d="M218 341 H382"/><path d="M218 350 H382"/><path d="M218 359 H382"/></g>
+        <text x="300" y="320" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D21.3101</text>
+        ${line('M260 372 V420 H560 V250', '#FFCC66', any && r, null, 3)}${valve(500, 420, 0.5, '')}
+        ${line('M20 300 H180 V340', '#4FC3F7', cw>1, null, 3)}<text x="24" y="292" fill="#DCE6F2" font-size="12" font-weight="600">Agua Enfr.</text>
+        ${line('M180 360 V400 H20', '#4FC3F7', cw>1, 'twArrB', 3)}<text x="24" y="392" fill="#DCE6F2" font-size="12" font-weight="600">Agua Enfr.</text>
+        ${valve(140, 400, cw>1?0.7:0, 'NO', true)}
+        ${rd(30, 440, f2(cw), 'USGPM', '#7FD4FF', 110)}
+        ${ctl(420, 450, 'M', '80.00', f2(t), '°F', '#FFCC66', 'TI0101')}
+      </g>
+      <g class="tw-eq" data-tw-eq="gas001">
+        ${selBox('gas001', 620, 120, 210, 420)}
+        ${vDrum(660, 200, 120, 270, lvl, 'GAS-001', zc('lvlGas001',lvl,'#38D9A9'))}
+        ${rd(800, 400, f0(p), 'PSI', zc('psigGas001',p), 96)}
+      </g>
+      ${line('M720 190 V60 H975', '#FFCC66', false, 'twArrG', 3)}${valve(720, 110, 0, '', true)}
+      <text x="985" y="50" fill="#DCE6F2" font-size="11" text-anchor="end">Venteos</text>
+      ${line('M720 160 H975', '#FFCC66', any && r, 'twArrG', 4)}${valve(800, 160, any?1:0, '')}${valve(900, 160, any?1:0, '')}
+      <text x="985" y="150" fill="#DCE6F2" font-size="11" text-anchor="end">Medición</text>
+    </svg>`;
+  }
+
+  /* ---------- ENTRADA Y SALIDA DE PLANTA ---------- */
+  function scenePlant(){
+    const r = run(), pIn = V('psigGas001'), qIn = V('inletFlow'), qOut = V('salesFlow'), pOut = V('salesPSIG'), dp = V('d950303DP'), dew = V('dewPoint');
+    const vent = Math.max(0, qIn - qOut), ratio = 10.323/31.184;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Entrada y salida de planta">${DEFS}
+      <!-- entradas -->
+      <g class="tw-eq" data-tw-eq="entrada">
+        ${selBox('entrada', 12, 40, 600, 300)}
+        ${line('M20 60 H975', '#5E6E85', false, null, 2)}<text x="24" y="52" fill="#DCE6F2" font-size="12" font-weight="600">DP K-101</text>
+        ${line('M20 150 H975', '#FFCC66', r, 'twArrG', 5)}<text x="24" y="142" fill="#DCE6F2" font-size="12" font-weight="600">De PC1</text>
+        <text x="985" y="140" fill="#DCE6F2" font-size="11" text-anchor="end">Coalesc.</text>
+        ${line('M20 190 H150 V150', '#FFCC66', r && state.valves.v103, null, 3)}<text x="24" y="182" fill="#DCE6F2" font-size="12" font-weight="600">De PC3</text>
+        ${line('M20 250 H300', '#FFCC66', false, null, 3)}<text x="24" y="242" fill="#DCE6F2" font-size="12" font-weight="600">De PC2/PC4</text>
+        ${valve(180, 250, 0, 'NC')} ${rd(90, 210, f1(r?60.6:0), 'Kg/cm²', '#7FD4FF', 96)} ${rd(220, 210, f1(r?-258.5:0), 'M3/H', '#7FD4FF', 96)}
+        ${valve(250, 110, 1, 'NO', true)}
+        ${valve(350, 150, r?1:0, 'NC')}
+        ${ctl(430, 166, 'M', '50.000', f2(qIn), 'MMSCFD', '#7FD4FF', 'FIC entrada')}
+        ${rd(420, 96, f2(r?72.69:65), '°F', '#FFCC66', 88)} ${rd(420, 120, f0(pIn), 'psig', zc('psigGas001',pIn), 88)}
+        <text x="520" y="110" fill="#8A9BB3" font-family="${MONO}" font-size="10">TIC0101 A</text><text x="520" y="132" fill="#8A9BB3" font-family="${MONO}" font-size="10">TIC0101 C/D</text>
+      </g>
+      ${line('M975 90 H860 V150', '#9AD8FF', false, null, 2)}${valve(860, 115, 0, '', true)}
+      <text x="985" y="82" fill="#DCE6F2" font-size="11" text-anchor="end">Gas Regen</text>
+      ${rd(860, 30, f2(r?-0.20:0), 'MMSCFD', '#7FD4FF', 116)}
+      <!-- filtro gas residuo -->
+      <g class="tw-eq" data-tw-eq="d950303">
+        ${selBox('d950303', 620, 170, 370, 170)}
+        ${line('M975 230 H700 V560', '#9AD8FF', r, null, 4)}
+        <text x="985" y="222" fill="#DCE6F2" font-size="11" text-anchor="end">Gas Residuo</text>
+        <text x="985" y="182" fill="#DCE6F2" font-size="11" text-anchor="end">Gas Regen</text>${line('M975 190 H720 V230', '#9AD8FF', false, null, 2)}
+        ${filterV(860, 240, 40, 80, 'D95.0303B')}
+        ${rd(760, 280, f2(dp), 'PSID', zc('d950303DP',dp), 88)}
+      </g>
+      <!-- salida a PM-351 -->
+      <g class="tw-eq" data-tw-eq="salida">
+        ${selBox('salida', 12, 350, 600, 320)}
+        ${line('M700 560 H20', '#9AD8FF', r, 'twArrS', 5)}<text x="24" y="550" fill="#DCE6F2" font-size="12" font-weight="600">A PM-351</text>
+        ${valve(450, 560, r?1:0, 'NC')} ${valve(200, 560, r?1:0, 'NO')}
+        ${line('M300 150 V560', '#5E6E85', false, null, 2)}<text x="306" y="420" fill="#5E6E85" font-size="10" transform="rotate(90 306 420)">ByPass 6"</text>
+        ${line('M380 150 V560', '#5E6E85', false, null, 2)}<text x="386" y="300" fill="#5E6E85" font-size="10" transform="rotate(90 386 300)">ByPass 2"</text>
+        ${valve(300, 470, 0, '', true)} ${valve(380, 350, 0, '', true)}
+        ${rd(30, 380, f2(dew), '°C', zc('dewPoint',dew), 90)} ${rd(30, 406, f2(dew*1.8+32), '°F', '#7FD4FF', 90)}
+        ${line('M140 450 H120 V500', '#9AD8FF', false, null, 2)}${valve(140, 450, 0.5, 'NO', true)}
+        ${ctl(190, 420, 'A', '900', f0(pOut), 'psig', zc('salesPSIG',pOut), '')}
+        ${ctl(190, 480, 'A', '820', f0(pOut), 'psig', zc('salesPSIG',pOut), '')}
+        ${rd(30, 590, f0(pOut*0.893), 'psig', '#7FD4FF', 96)}
+        ${ctl(430, 400, 'A', '80.00', f2(r?80.23:0), '', '#7FD4FF', 'HIC0301B2')}
+        ${rd(430, 460, f0(pOut*1.011), 'psig', '#7FD4FF', 96)} ${rd(430, 490, f2(qOut), 'MMSCFD', '#7FD4FF', 116)}
+      </g>
+      <!-- totales -->
+      <g class="tw-eq" data-tw-eq="totales">
+        ${selBox('totales', 620, 400, 370, 200)}
+        <rect x="640" y="420" width="330" height="160" rx="6" fill="#0F1A2B" stroke="#24364F"/>
+        <text x="805" y="444" fill="#DCE6F2" font-size="14" font-weight="700" text-anchor="middle">TOTALES</text>
+        <g font-size="12" fill="#8A9BB3" text-anchor="middle"><text x="695" y="470">Entrada</text><text x="805" y="470">Salida</text><text x="915" y="470">Venteos</text></g>
+        <g font-family="${MONO}" font-size="13" font-weight="700" text-anchor="middle">
+          <text x="695" y="510" fill="#7FD4FF">${f2(qIn*ratio)}</text><text x="805" y="510" fill="#7FD4FF">${f2(qOut*ratio)}</text><text x="915" y="510" fill="#FFCC66">${f1(vent*ratio*0.5+ (r?0.05:0))}</text>
+          <text x="695" y="550" fill="#7FD4FF">${f2(qIn)}</text><text x="805" y="550" fill="#7FD4FF">${f2(qOut)}</text><text x="915" y="550" fill="#FFCC66">${f1(vent)}</text>
+        </g>
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- FILTROS DE GAS DE ENTRADA ---------- */
+  function sceneFilt(){
+    const r = run(), m = state.filterMode, aOn = m!=='B', bOn = m!=='A';
+    const dA = V('filtrosPSID'), dB = V('filtrosBPSID'), tOut = V('filterOutTemp'), tH = V('calentadorTemp'), dH = V('d210203DP');
+    const ho = V('hotOilTemp') > 300;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Filtros de gas de entrada">${DEFS}${FLOOR}
+      ${line('M20 200 H120 V150 H200 M120 200 V330 H200', '#FFCC66', r, null, 4)}
+      <text x="24" y="190" fill="#DCE6F2" font-size="12" font-weight="600">Gas Entrada</text>
+      ${rd(24, 110, f1(V('inletKgCm2')), 'Kg/cm²', '#7FD4FF', 100)}
+      <g class="tw-eq" data-tw-eq="filtros">
+        ${selBox('filtros', 180, 70, 330, 400)}
+        ${filterV(200, 100, 50, 140, 'D95.0101A')}
+        ${filterV(200, 290, 50, 140, 'D95.0101B')}
+        <text x="270" y="128" fill="${aOn?'#33D69F':'#8A9BB3'}" font-size="11" font-weight="700">${aOn?'EN LÍNEA':'FUERA'}</text>
+        <text x="270" y="318" fill="${bOn?'#33D69F':'#8A9BB3'}" font-size="11" font-weight="700">${bOn?'EN LÍNEA':'FUERA'}</text>
+        <text x="270" y="146" fill="#5E6E85" font-size="10">LAHH</text><text x="270" y="336" fill="#5E6E85" font-size="10">LAHH</text>
+        ${rd(270, 190, f2(aOn?dA:0), 'PSID', zc('filtrosPSID',dA), 92)}
+        ${rd(270, 380, f2(bOn?dB:0), 'PSID', zc('filtrosBPSID',dB), 92)}
+        ${line('M250 170 H380 V600', '#FFCC66', r && aOn, null, 4)}${line('M250 360 H380', '#FFCC66', r && bOn, null, 4)}
+        ${rd(400, 160, f2(tOut), '°F', '#FFCC66', 88)}
+      </g>
+      ${line('M380 600 H700 V120 H975', '#FFCC66', r, 'twArrG', 4)}
+      <text x="985" y="110" fill="#DCE6F2" font-size="11" text-anchor="end">Torres Desh.</text>
+      <g class="tw-eq" data-tw-eq="d210203">
+        ${selBox('d210203', 520, 180, 300, 330)}
+        <text x="600" y="200" fill="#DCE6F2" font-size="11" font-weight="600">HOT OIL</text>
+        ${line('M600 210 V470', ho?'#FFB300':'#4E6380', ho, null, 2)}
+        ${valve(600, 250, ho?0.6:0, '', true)}
+        ${ctl(640, 230, 'A', '95.00', f2(tH), '°F', '#FFCC66', 'TIC-0203')}
+        ${rd(640, 290, r?'NaN':'NaN', '°F', '#FF6B6B', 104)}
+        <ellipse cx="620" cy="345" rx="10" ry="18" fill="#55677F"/><rect x="620" y="327" width="140" height="36" fill="url(#twMetalH)"/><ellipse cx="760" cy="345" rx="10" ry="18" fill="#8FA3BD"/>
+        <text x="690" y="350" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">D21.0203</text>
+        ${rd(640, 390, f2(dH), 'PSID', zc('d210203DP',dH), 104)}
+        ${rd(640, 440, f0(r?4:0), 'MMSCFD', '#7FD4FF', 104)}
+        ${valve(700, 470, r?0.6:0, '', true)}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- PANEL ---------- */
+  function recepEq(C){
+    if(C.kind==='sep') return { v101:{title:'V-101 · Separador de baja'}, v102:{title:'V-102 · Separador de media'}, v103:{title:'V-103 · Separador de alta'}, f101:{title:'F-101 · Salida baja a compresión'}, f102:{title:'F-102 · Salida media'}, proceso:{title:'V-103 · Salida a proceso'} };
+    if(C.kind==='comp'){ const o = {}; MCL.forEach(([k,t])=>o[k]={title:`${t} · ${k.toUpperCase()}`}); o.succion={title:'Succión baja / media'}; o.descarga={title:'Colector de descarga'}; o.aero={title:'Aero TI-0101'}; return o; }
+    if(C.kind==='gas1') return { gas001:{title:'GAS-001 · Separador'}, d213101:{title:'D21.3101 · Enfriador por agua'} };
+    if(C.kind==='plant') return { entrada:{title:'Colector de entrada'}, d950303:{title:'D95.0303B · Filtro gas residuo'}, salida:{title:'Salida a PM-351'}, totales:{title:'Totales'} };
+    return { filtros:{title:'D95.0101A/B · Coalescedores'}, d210203:{title:'D21.0203 · Calentador hot oil'} };
+  }
+  function recepVals(C, s){
+    if(C.kind==='sep'){
+      if(s==='v101' || s==='f101') return kpi('Presión V-101', f1(V('psigBajaP')), 'psig', zc('psigBajaP',V('psigBajaP'))) + kpi('SP PI5107', f0(state.lowSepSP), 'psig', '#FFB300') + kpi('Nivel', f1(V('lvlV101')), '%', zc('lvlV101',V('lvlV101'),'#38D9A9')) + kpi('Caudal', f0(V('flowBajaM3H')), 'M3/H');
+      if(s==='v102' || s==='f102') return kpi('Presión V-102', f1(V('psigMediaP')), 'psig') + kpi('Nivel', f1(V('lvlV102')), '%', zc('lvlV102',V('lvlV102'),'#38D9A9')) + kpi('Válvula', state.valves.v102?'ABIERTA':'CERRADA', '', state.valves.v102?'#33D69F':'#8A9BB3');
+      return kpi('Presión V-103', f0(V('psigAltaP')), 'psig', zc('psigAltaP',V('psigAltaP'))) + kpi('Nivel', f1(V('lvlV103')), '%', zc('lvlV103',V('lvlV103'),'#38D9A9')) + kpi('Caudal', f0(V('flowAltaM3H')), 'M3/H') + kpi('Válvula', state.valves.v103?'ABIERTA':'CERRADA', '', state.valves.v103?'#33D69F':'#8A9BB3');
+    }
+    if(C.kind==='comp'){
+      if(s==='succion') return kpi('PY-5107', f2(V('py5107')), 'psig', zc('py5107',V('py5107'))) + kpi('SP baja', f0(state.lowSepSP), 'psig', '#FFB300');
+      if(s==='descarga') return kpi('Colector', f0(V('psigColectorComp')), 'psig', zc('psigColectorComp',V('psigColectorComp'))) + kpi('Caudal', f2(V('inletFlow')), 'MMSCFD') + kpi('Unidades', MC_KEYS.filter(k=>state.compressors[k]).length+'/5', '');
+      if(s==='aero') return aeroVals('comp');
+      const on = state.compressors[s];
+      return kpi('Estado', on?'MARCHA':'STOP', '', on?'#33D69F':'#8A9BB3') + kpi('RPM PV', f0(V('rpmComp')), 'rpm') + kpi('RPM SP', f0(state.mcRpmSP), 'rpm', '#FFB300') + kpi('Succión', state.valves.v101||state.valves.v102||state.valves.v103?'OK':'SIN', '', state.valves.v101||state.valves.v102||state.valves.v103?'#33D69F':'#FF6B6B');
+    }
+    if(C.kind==='gas1') return kpi('Presión', f0(V('psigGas001')), 'psi', zc('psigGas001',V('psigGas001'))) + kpi('Temp. TI0101', f2(V('gas001Temp')), '°F', '#FFCC66') + kpi('Agua enfr.', f2(V('coolingWaterGPM')), 'USGPM') + kpi('Nivel', f1(V('lvlGas001')), '%', zc('lvlGas001',V('lvlGas001'),'#38D9A9'));
+    if(C.kind==='plant'){
+      if(s==='d950303') return kpi('ΔP', f2(V('d950303DP')), 'PSID', zc('d950303DP',V('d950303DP')));
+      if(s==='salida') return kpi('Presión', f0(V('salesPSIG')), 'psig', zc('salesPSIG',V('salesPSIG'))) + kpi('Caudal', f2(V('salesFlow')), 'MMSCFD') + kpi('Dew point', f1(V('dewPoint')), '°C', zc('dewPoint',V('dewPoint')));
+      return kpi('Entrada', f2(V('inletFlow')), 'MMSCFD') + kpi('Salida', f2(V('salesFlow')), 'MMSCFD') + kpi('Venteos', f2(Math.max(0,V('inletFlow')-V('salesFlow'))), 'MMSCFD', '#FFCC66') + kpi('Presión', f0(V('psigGas001')), 'psig');
+    }
+    if(s==='d210203') return kpi('TIC-0203 PV', f2(V('calentadorTemp')), '°F', '#FFCC66') + kpi('SP', '95.0', '°F', '#FFB300') + kpi('ΔP', f2(V('d210203DP')), 'PSID') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+    return kpi('ΔP A', f2(V('filtrosPSID')), 'PSID', zc('filtrosPSID',V('filtrosPSID'))) + kpi('ΔP B', f2(V('filtrosBPSID')), 'PSID', zc('filtrosBPSID',V('filtrosBPSID'))) + kpi('Alineación', state.filterMode, '', '#DCE6F2') + kpi('Presión', f1(V('inletKgCm2')), 'Kg/cm²');
+  }
+  function recepCtls(C, s){
+    const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
+    const vbtn = k => `<button type="button" class="tw-btn ${state.valves[k]?'on':''}" data-tw-act="inval" data-k="${k}">${k.toUpperCase()}<br><small>${state.valves[k]?'ABIERTA':'CERRADA'}</small></button>`;
+    if(C.kind==='sep'){
+      let h = `<div class="tw-ctl-title">Válvulas de ingreso</div><div class="tw-grid2">${vbtn('v101')}${vbtn('v102')}</div><div class="tw-grid2">${vbtn('v103')}</div>`;
+      if(s==='v101' || s==='f101') h += `<div class="tw-ctl-title">Setpoint presión V-101 (PI5107)</div>` + step('lowsep', f0(state.lowSepSP), 'psig', '−1', '+1', `<div class="tw-note">La presión del V-101 fija el gas de baja que se comprime: más presión, más carga de planta.</div>`);
+      const lk = (s==='v102'||s==='f102') ? 'lvlV102' : (s==='v103'||s==='proceso') ? 'lvlV103' : 'lvlV101';
+      return h + `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="${lk}">Faceplate nivel ${lk.replace('lvl','')}</button>` + trend;
+    }
+    if(C.kind==='comp'){
+      if(s==='aero') return aeroCtls('comp');
+      if(s==='succion') return `<div class="tw-note">Sin al menos una válvula de entrada abierta (V-101/102/103) los compresores no arrancan: interlock de baja succión.</div>`;
+      const one = s.startsWith('mc') ? `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2"><button type="button" class="tw-btn ${state.compressors[s]?'on':''}" data-tw-act="mc" data-k="${s}">${s.toUpperCase()}<br><small>${state.compressors[s]?'MARCHA':'STOP'}</small></button></div>` : trend;
+      return one + `<div class="tw-grid2"><button type="button" class="tw-btn" data-tw-act="mc4">Arrancar 4</button><button type="button" class="tw-btn" data-tw-act="mc5">Arrancar 5</button></div><button type="button" class="tw-btn" data-tw-act="mcstop">Detener todos</button>
+        <div class="tw-ctl-title">Velocidad (SP común)</div>` + step('mcrpm', f0(state.mcRpmSP), 'rpm', '−20', '+20');
+    }
+    if(C.kind==='gas1') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlGas001">Faceplate LIC GAS-001</button>` + trend + `<div class="tw-note">En la pantalla real la presión del GAS-001 marca −43 PSI (instrumento fuera de servicio). Acá se muestra la del simulador.</div>`;
+    if(C.kind==='plant') return trend + `<div class="tw-note">El caudal de entrada lo fija la presión del V-101 (Separadores de Entrada). En Totales, la fila de abajo es el caudal actual; la de arriba sigue la misma proporción que la captura.</div>`;
+    if(s==='filtros') return `<div class="tw-ctl-title">Alineación</div><div class="tw-grid2">${['A','B','AB'].map(m=>`<button type="button" class="tw-btn ${state.filterMode===m?'on':''}" data-tw-act="fmode" data-k="${m}">${m==='AB'?'A + B':'Solo '+m}</button>`).join('')}</div>
+      <button type="button" class="tw-btn" data-tw-act="fclean">Purgar bota y renovar elemento</button>` + trend;
+    return `<div class="tw-note">TIC-0203 calienta con hot oil el gas que va a las torres. Si el hot oil está frío, el gas entra frío a deshidratación.</div>`;
+  }
+  function recepAct(a, btn){
+    const d = +btn.dataset.d, k = btn.dataset.k;
+    const suct = () => state.valves.v101 || state.valves.v102 || state.valves.v103;
+    if(a==='inval'){ state.valves[k] = !state.valves[k]; addLog(`Válvula de ingreso ${k.toUpperCase()} ${state.valves[k]?'ABIERTA':'CERRADA'}`, state.valves[k]?'ok':'info'); return true; }
+    if(a==='lowsep'){ state.lowSepSP = Math.max(0, Math.min(55, state.lowSepSP + d)); addLog(`Setpoint presión V-101 ajustado a ${state.lowSepSP} psig`, 'info'); return true; }
+    if(a==='mc'){
+      if(!state.compressors[k] && !suct()){ addLog('Interlock de baja succión: abre al menos una válvula de entrada (V-101/102/103).','alarm'); return true; }
+      state.compressors[k] = !state.compressors[k]; addLog(`Moto-compresor ${k.toUpperCase()} ${state.compressors[k]?'ARRANCADO':'DETENIDO'}`, state.compressors[k]?'ok':'info'); return true;
+    }
+    if(a==='mc4' || a==='mc5'){
+      if(!suct()){ addLog('Interlock de baja succión: abre al menos una válvula de entrada (V-101/102/103).','alarm'); return true; }
+      if(a==='mc4'){ state.compressors = {mc1:true, mc2:true, mc3:true, mc5:true, mc6:false}; addLog('Tren XA0101: 4 unidades en marcha.','ok'); }
+      else { MC_KEYS.forEach(m=>state.compressors[m]=true); addLog('Tren XA0101 completo (5 moto-compresores) en MARCHA a 1000 RPM.','ok'); }
+      return true;
+    }
+    if(a==='mcstop'){ MC_KEYS.forEach(m=>state.compressors[m]=false); addLog('Tren de moto-compresores XA0101 detenido.','info'); return true; }
+    if(a==='mcrpm'){ state.mcRpmSP = Math.max(700, Math.min(1100, state.mcRpmSP + d*20)); addLog(`Setpoint velocidad moto-compresores ajustado a ${state.mcRpmSP} rpm`, 'info'); return true; }
+    if(a==='fmode'){ state.filterMode = k; if(k==='AB') state.vals.filtrosPSID = Math.max(1.39, state.vals.filtrosPSID*0.75); addLog(`Alineación de filtros coalescedores D95.0101 cambiada a: ${k}`, 'info'); return true; }
+    if(a==='fclean'){ state.vals.filtrosPSID = 1.45; addLog('✓ Filtros D95.0101A/B purgados y elementos renovados: ΔP restablecida.','ok'); return true; }
+    return false;
+  }
+
   /* ===================== MARCO ===================== */
   function renderShell(){
     const root = $('twin-root'); if(!root) return;
@@ -7926,7 +8284,7 @@ setInterval(tickChrom, 1500);
     }
     const C = colOf();
     $('tw-title').textContent = C.title; $('tw-subtitle').textContent = C.sub;
-    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : sceneRecont();
+    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : C.kind==='recont' ? sceneRecont() : C.kind==='sep' ? sceneSep() : C.kind==='comp' ? sceneComp() : C.kind==='gas1' ? sceneGas1() : C.kind==='plant' ? scenePlant() : sceneFilt();
   }
 
   /* ===================== PANEL LATERAL ===================== */
@@ -7937,6 +8295,7 @@ setInterval(tickChrom, 1500);
   function eqList(){
     const C = colOf();
     if(CRYO.includes(C.kind)) return cryoEq(C);
+    if(RECEP.includes(C.kind)) return recepEq(C);
     if(C.kind==='col') return {
       columna:{title:`${C.colTag} · ${C.title}`}, alimentacion:{title:`Alimentación desde ${C.feedFrom}`}, venteo:{title:'PIC venteo · Colector de Baja'},
       condensador:{title:`${C.aeroTag} · Condensador de tope`}, acumulador:{title:`${C.accTag} · Acumulador`}, bombas:{title:`${C.pumpTag} · Bombas`},
@@ -7960,6 +8319,7 @@ setInterval(tickChrom, 1500);
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
     if(CRYO.includes(C.kind)) return cryoVals(C, s);
+    if(RECEP.includes(C.kind)) return recepVals(C, s);
     if(C.kind==='col'){
       const reb = state.reboilers[C.reb];
       if(s==='columna') return kpi('Presión', f1(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey))) + kpi('Tope', f1(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey))) + kpi('Nivel fondo', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi(C.reb==='depro'?'Pureza C3':'Pureza C4', f1(V(C.reb==='depro'?'purityC3':'purityC4')), '%', zc(C.reb==='depro'?'purityC3':'purityC4', V(C.reb==='depro'?'purityC3':'purityC4'), '#33D69F'));
@@ -7999,6 +8359,7 @@ setInterval(tickChrom, 1500);
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
     if(CRYO.includes(C.kind)) return cryoCtls(C, s);
+    if(RECEP.includes(C.kind)) return recepCtls(C, s);
     const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
     if(C.kind==='col'){
       if(s==='columna') return trend;
@@ -8047,7 +8408,7 @@ setInterval(tickChrom, 1500);
 
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
-    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (zonas Criogenia y Fraccionamiento).</div>`; return; }
+    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (Recepción, Criogenia o Fraccionamiento).</div>`; return; }
     const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
     el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
@@ -8067,7 +8428,7 @@ setInterval(tickChrom, 1500);
   function act(btn){
     const a = btn.dataset.twAct;
     if(state.esdActive && a!=='vessel'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
-    if(cryoAct(a, btn)){
+    if(cryoAct(a, btn) || recepAct(a, btn)){
       /* maniobra de criogenia ya aplicada */
     } else if(a==='fan'){
       const ae = state.aeros[btn.dataset.ae], i = +btn.dataset.i;
