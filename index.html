@@ -7028,8 +7028,8 @@ setInterval(tickChrom, 1500);
 <script>
 /* =========================================================================
    GEMELO 3D (vista isométrica) — Dirección A
-   Usa el mismo `state` del simulador: lo que se maneje acá se refleja en el
-   panel clásico y viceversa.
+   Cada pantalla sigue la captura real del DCS (mismos equipos, conexiones y
+   controladores), dibujada en 3D. Usa el mismo `state` del simulador.
    ========================================================================= */
 (function(){
   const ZONES = [
@@ -7040,62 +7040,19 @@ setInterval(tickChrom, 1500);
     {id:'serv', label:'Servicios'}
   ];
   const twin = { area:'depropanizador', zone:'frac', sel:'columna', hist:{} };
-  const COLS = {
-    deet: {
-      areas:['deetanizador','reflujo_deet'], area:'deetanizador',
-      title:'Deetanizador', sub:'D81.0302 + reflujo (D21.0306 · D82.0302 · P-0306) · vista isométrica',
-      colTag:'D81.0302', reb:'deet', rebTag:'D21.0307', ticTag:'TIC-0307',
-      cond:{type:'hx', tag:'D21.0306', label:'Condensador frío', outKey:'d210306OutTemp', inKey:'cond306InTemp'},
-      accTag:'D82.0302', accKey:'lvlD820302',
-      pumps:[['deet','A'],['deetB','B']], pumpTag:'P-0306 A/B',
-      psigKey:'psigDeet', picTag:'PIC-0302', topKey:'topTempDeet', botKey:'bottomTempDeet',
-      midKeys:['deetTrayMidTemp','deetTrayLowTemp'], colKey:'lvlD810302',
-      refluxKey:'deetRefluxGPM', prodKey:null, split:null,
-      botFlowKey:null, botLabel:'a Depropanizador D81.0501',
-      purityKey:null
-    },
-    depro: {
-      areas:['depropanizador'], area:'depropanizador',
-      title:'Depropanizador', sub:'D81.0501 · Fraccionamiento · vista isométrica',
-      colTag:'D81.0501', reb:'depro', rebTag:'D21.0501', ticTag:'TIC-0501',
-      cond:{type:'aero', key:'depro', tag:'AE-0501', label:'Condensador de tope'},
-      accTag:'D82.0501', accKey:'lvlD820501',
-      pumps:[['depro','A'],['deproB','B']], pumpTag:'P-0501 A/B',
-      psigKey:'psigDepro', picTag:'PIC-0501', topKey:'topTempDepro', botKey:'bottomTempDepro',
-      midKeys:null, colKey:'lvlD810501',
-      refluxKey:'deproRefluxGPM', prodKey:'deproProdFlow', prodLabel:'Propano', split:'depro',
-      botFlowKey:'deproBotFlow', botLabel:'a Debutanizador D81.0502',
-      purityKey:'purityC3', purityLabel:'Pureza C3'
-    },
-    debu: {
-      areas:['debutanizador'], area:'debutanizador',
-      title:'Debutanizador', sub:'D81.0502 · Fraccionamiento · vista isométrica',
-      colTag:'D81.0502', reb:'debu', rebTag:'D21.0502', ticTag:'TIC-0502',
-      cond:{type:'aero', key:'debu', tag:'AE-0502', label:'Condensador de tope'},
-      accTag:'D82.0502', accKey:'lvlD820502',
-      pumps:[['debuTope','A'],['debuTopeB','B']], pumpTag:'P-0502 A/B',
-      psigKey:'psigDebu', picTag:'PIC-0502', topKey:'topTempDebu', botKey:'bottomTempDebu',
-      midKeys:null, colKey:'lvlD810502',
-      refluxKey:'debuRefluxGPM', prodKey:'debuProdFlow', prodLabel:'Butano', split:'debu',
-      botFlowKey:'debuBotFlow', botLabel:'Gasolina a almacenaje', botPump:'debuFondo', botPumpTag:'P-0503',
-      purityKey:'purityC4', purityLabel:'Pureza C4'
-    }
-  };
-  const AREA_COL = {}; Object.keys(COLS).forEach(k=>COLS[k].areas.forEach(a=>AREA_COL[a]=k));
-  const READY = {}; Object.keys(AREA_COL).forEach(a=>READY[a]=true);
-  const colOf = () => COLS[AREA_COL[twin.area]];
-
 
   const $ = id => document.getElementById(id);
   const V = k => (state.lastV && typeof state.lastV[k]==='number') ? state.lastV[k] : ((state.vals && typeof state.vals[k]==='number') ? state.vals[k] : 0);
   const f0 = x => (Math.round(x)).toLocaleString('es-AR');
   const f1 = x => x.toFixed(1);
+  const f2 = x => x.toFixed(2);
   const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const run = () => (state.loadSmooth||0) > 0.03;
+  const MONO = 'JetBrains Mono, monospace';
 
-  // Color por zona de la variable (usa las mismas zonas que el panel clásico)
   function zoneColor(areaId, key, val, normal){
-    const a = AREAS.find(x=>x.id===areaId);
-    const g = a && a.gauges && a.gauges.find(x=>x.key===key);
+    const a = AREAS.find(x=>x.id===areaId && x.gauges && x.gauges.some(g=>g.key===key)) || AREAS.find(x=>x.gauges && x.gauges.some(g=>g.key===key));
+    const g = a && a.gauges.find(x=>x.key===key);
     if(!g || !g.zones) return normal || '#7FD4FF';
     for(const z of g.zones){
       if(val>=z[0] && val<=z[1]){
@@ -7107,8 +7064,460 @@ setInterval(tickChrom, 1500);
     }
     return '#FF6B6B';
   }
+  const zc = (k,v,n) => zoneColor(twin.area, k, v, n);
 
-  /* ---------------- MARCO ---------------- */
+  /* ===================== CONFIGURACIÓN DE PANTALLAS ===================== */
+  const COLS = {
+    depro: {
+      kind:'col', areas:['depropanizador'], title:'Depropanizador', sub:'D81.0501 · según pantalla DCS',
+      colTag:'D81.0501', reb:'depro', rebTag:'D21.0501', ticTag:'TIC-0501',
+      aero:'depro', aeroTag:'AE-0501', accTag:'D82.0501', accKey:'lvlD820501', colKey:'lvlD810501', colVessel:'lvlD810501',
+      pumps:[['depro','A'],['deproB','B']], pumpTag:'P-0501 A/B',
+      psigKey:'psigDepro', ventSP:250, colSP:240, topKey:'topTempDepro', botKey:'bottomTempDepro',
+      feedFrom:'Deetanizador', feedTemp:()=> V('bottomTempDeet')*0.9555,   // 186.2 → 177.8 °F
+      refluxKey:'deproRefluxGPM', ficTag:'FIC-0504', ficNom:60.49, ficExtra:47.83, split:'depro',
+      prodKey:'deproProdFlow', prodLabel:'A Propano', prodTemp:()=>V('propanoTemp'),
+      botFlowKey:'deproBotFlow', botLabel:'Debutanizador', botTemp:r=>r-16.52, botCtl:{mode:'C', sp:20.516, tag:'FIC fondo'},
+      topKeyHist:'topTempDepro', retRatio:50.25/126
+    },
+    debu: {
+      kind:'col', areas:['debutanizador'], title:'Debutanizador', sub:'D81.0502 · según pantalla DCS',
+      colTag:'D81.0502', reb:'debu', rebTag:'D21.0502', ticTag:'TIC-0502',
+      aero:'debu', aeroTag:'AE-0502', accTag:'D82.0502', accKey:'lvlD820502', colKey:'lvlD810502', colVessel:'lvlD810502',
+      pumps:[['debuTope','A'],['debuTopeB','B']], pumpTag:'P-0502 A/B',
+      psigKey:'psigDebu', ventSP:77, colSP:74, topKey:'topTempDebu', botKey:'bottomTempDebu',
+      feedFrom:'Depropanizador', feedTemp:()=> (V('bottomTempDepro')-16.52)*0.7231, // 251.6 → 181.9 °F
+      refluxKey:'debuRefluxGPM', ficTag:'FIC-0505', ficNom:19.97, ficExtra:17.28, split:'debu',
+      prodKey:'debuProdFlow', prodLabel:'A Butano', prodTemp:null, prodCtl:{mode:'M', sp:50.0, pv:48.87},
+      botFlowKey:'debuBotFlow', botLabel:'Gasolina', botTemp:r=>r-34.48, botCtl:null, botPump:'debuFondo',
+      topKeyHist:'topTempDebu', retRatio:52.51/120.91
+    },
+    deet: { kind:'deet', areas:['deetanizador'], title:'Deetanizador', sub:'D81.0302 · según pantalla DCS', topKeyHist:'topTempDeet' },
+    refdeet: { kind:'refdeet', areas:['reflujo_deet'], title:'Reflujo Deetanizador', sub:'D21.0306 · D82.0302 · P-0306 A/B · según pantalla DCS', topKeyHist:'d210306OutTemp', defSel:'acumulador' },
+    alm: { kind:'storage', areas:['medicion_almacen'], title:'Medición Almacenamiento', sub:'PIC0504B · PIC0510B · LIC0505 · según pantalla DCS', topKeyHist:'propanoTnD', defSel:'propano' }
+  };
+  const AREA_COL = {}; Object.keys(COLS).forEach(k=>COLS[k].areas.forEach(a=>AREA_COL[a]=k));
+  const READY = {}; Object.keys(AREA_COL).forEach(a=>READY[a]=true);
+  const colOf = () => COLS[AREA_COL[twin.area]];
+  const defSel = () => (colOf()||{}).defSel || 'columna';
+
+  /* ===================== PIEZAS DE DIBUJO ===================== */
+  const DEFS = `<defs>
+    <linearGradient id="twMetal" x1="0" x2="1"><stop offset="0" stop-color="#3B4A60"/><stop offset=".35" stop-color="#8FA3BD"/><stop offset=".55" stop-color="#6B7F99"/><stop offset="1" stop-color="#26313F"/></linearGradient>
+    <linearGradient id="twMetalH" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#8FA3BD"/><stop offset=".5" stop-color="#55677F"/><stop offset="1" stop-color="#26313F"/></linearGradient>
+    <linearGradient id="twLiq" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#38D9A9"/><stop offset="1" stop-color="#0F7A5C"/></linearGradient>
+    <linearGradient id="twHot" x1="0" x2="1"><stop offset="0" stop-color="#FFB300"/><stop offset="1" stop-color="#FF7043"/></linearGradient>
+    <pattern id="twGrid" width="40" height="23" patternUnits="userSpaceOnUse" patternTransform="skewX(-60)"><path d="M0 0H40M0 0V23" stroke="#152033" stroke-width="1"/></pattern>
+    <marker id="twArrG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#38D9A9"/></marker>
+    <marker id="twArrB" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4FC3F7"/></marker>
+    <marker id="twArrS" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9AD8FF"/></marker>
+  </defs>`;
+  const FLOOR = `<path d="M60 600 L500 680 L960 590 L520 520 Z" fill="url(#twGrid)"/><path d="M60 600 L500 680 L960 590 L520 520 Z" fill="none" stroke="#1C2738"/>`;
+
+  function selBox(id, x, y, w, h){ return twin.sel===id ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="#4FC3F7" stroke-width="2" stroke-dasharray="3 5" class="tw-selbox"/>` : ''; }
+  // línea de proceso: d = path, color, encendida
+  function line(d, color, on, arrow, w){
+    w = w || 3;
+    const mk = arrow ? ` marker-end="url(#${arrow})"` : '';
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round" opacity="${on?1:.28}"${mk}/>`+
+           `<path d="${d}" fill="none" stroke="#E6FFF6" stroke-width="1.2" stroke-dasharray="5 9" class="${on?'tw-flow':'tw-noflow'}"/>`;
+  }
+  // lectura simple (como los recuadros del DCS)
+  function rd(x, y, val, unit, color, w){
+    w = w || 92;
+    return `<g font-family="${MONO}" font-size="11"><rect x="${x}" y="${y}" width="${w}" height="22" rx="3" fill="#0F1A2B" stroke="#24364F"/>`+
+      `<text x="${x+w-8}" y="${y+15}" fill="${color||'#7FD4FF'}" text-anchor="end" font-weight="700">${val}</text>`+
+      (unit?`<text x="${x+6}" y="${y+15}" fill="#5E6E85">${unit}</text>`:'')+`</g>`;
+  }
+  // controlador: modo A/M/C, SP arriba y PV abajo (igual que el DCS)
+  function ctl(x, y, mode, sp, pv, unit, pvColor, tag){
+    const mc = mode==='A' ? '#4FC3F7' : mode==='M' ? '#FFB300' : '#B39DDB';
+    return `<g font-family="${MONO}" font-size="11">`+
+      (tag?`<text x="${x}" y="${y-5}" fill="#8A9BB3" font-size="10">${tag}${unit?' · '+unit:''}</text>`:'')+
+      `<rect x="${x}" y="${y}" width="104" height="38" rx="4" fill="#0F1A2B" stroke="#24364F"/>`+
+      `<rect x="${x+4}" y="${y+4}" width="16" height="16" rx="2" fill="${mc}"/><text x="${x+12}" y="${y+16}" fill="#0A0F18" text-anchor="middle" font-weight="700">${mode}</text>`+
+      `<text x="${x+98}" y="${y+16}" fill="#FFB300" text-anchor="end">${sp}</text>`+
+      `<text x="${x+98}" y="${y+32}" fill="${pvColor||'#7FD4FF'}" text-anchor="end" font-weight="700">${pv}</text>`+
+      `<text x="${x+24}" y="${y+16}" fill="#5E6E85" font-size="9">SP</text><text x="${x+24}" y="${y+32}" fill="#5E6E85" font-size="9">PV</text></g>`;
+  }
+  // válvula de control (bowtie + actuador). open 0..1, nc/no rótulo
+  function valve(x, y, open, label, vertical){
+    const c = open>0.05 ? '#33D69F' : '#FF6B6B';
+    const body = vertical
+      ? `<path d="M${x} ${y} L${x-11} ${y-20} L${x+11} ${y-20} Z M${x} ${y} L${x-11} ${y+20} L${x+11} ${y+20} Z" fill="${c}" stroke="#0A0F18"/>`
+      : `<path d="M${x} ${y} L${x-20} ${y-11} L${x-20} ${y+11} Z M${x} ${y} L${x+20} ${y-11} L${x+20} ${y+11} Z" fill="${c}" stroke="#0A0F18"/>`;
+    return body + `<path d="M${x} ${y} ${vertical?`H${x+20}`:`V${y-20}`}" stroke="#8FA3BD" stroke-width="2"/>`+
+      (vertical ? `<path d="M${x+20} ${y-12} Q${x+34} ${y} ${x+20} ${y+12} Z" fill="#8FA3BD"/>` : `<path d="M${x-12} ${y-20} Q${x} ${y-34} ${x+12} ${y-20} Z" fill="#8FA3BD"/>`)+
+      (label?`<text x="${x+(vertical?26:16)}" y="${y+(vertical?28:24)}" fill="#8A9BB3" font-family="${MONO}" font-size="10">${label}</text>`:'');
+  }
+  function pump(cx, cy, on, label){
+    return `<rect x="${cx-60}" y="${cy-13}" width="44" height="26" rx="4" fill="${on?'#3B4A60':'#2A3442'}" stroke="${on?'#5E728C':'#465670'}"/>
+      <circle cx="${cx}" cy="${cy}" r="16" fill="#1E2734" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="3"/>
+      <g class="${on?'tw-fan':''}" style="transform-origin:${cx}px ${cy}px"><path d="M${cx} ${cy} l9 -5 M${cx} ${cy} l-9 -5 M${cx} ${cy} v10" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2.5" stroke-linecap="round"/></g>
+      <text x="${cx-38}" y="${cy+32}" fill="${on?'#33D69F':'#8A9BB3'}" font-family="${MONO}" font-size="10" text-anchor="middle" font-weight="700">${label} · ${on?'MARCHA':'STOP'}</text>`;
+  }
+  // aeroenfriador isométrico con 4 motores en 2 filas de 2 (como el DCS)
+  function aero2x2(x, y, ae, tag, sub){
+    const fan = (cx, cy, on) => `<ellipse cx="${cx}" cy="${cy}" rx="22" ry="7" fill="#0B1220" stroke="${on?'#4FC3F7':'#3C4E68'}"/>
+      <g class="${on?'tw-fan':''}" style="transform-origin:${cx}px ${cy}px"><path d="M${cx} ${cy} l16 -2 M${cx} ${cy} l-13 5 M${cx} ${cy} l-4 -7" stroke="${on?'#7FD4FF':'#4E6380'}" stroke-width="3" stroke-linecap="round"/></g>`;
+    const on = ae.fans.filter(Boolean).length;
+    return `<path d="M${x} ${y} L${x+240} ${y} L${x+290} ${y+36} L${x+50} ${y+36} Z" fill="#2A3749" stroke="#4E6380"/>
+      <path d="M${x+50} ${y+36} L${x+290} ${y+36} L${x+290} ${y+64} L${x+50} ${y+64} Z" fill="#1A2433" stroke="#4E6380"/>
+      <path d="M${x} ${y} L${x+50} ${y+36} L${x+50} ${y+64} L${x} ${y+28} Z" fill="#141C29" stroke="#4E6380"/>
+      ${fan(x+80, y+11, ae.fans[0])}${fan(x+180, y+11, ae.fans[1])}${fan(x+105, y+26, ae.fans[2])}${fan(x+205, y+26, ae.fans[3])}
+      <g stroke="#3C4E68" stroke-width="2"><path d="M${x+60} ${y+64} L${x+44} ${y+130}"/><path d="M${x+280} ${y+64} L${x+296} ${y+130}"/></g>
+      <g font-family="Inter, sans-serif" font-size="12">
+        <text x="${x+300}" y="${y+10}" fill="#DCE6F2" font-weight="600">${tag}</text>
+        ${sub?`<text x="${x+300}" y="${y+26}" fill="#8A9BB3">${sub}</text>`:''}
+        <text x="${x+300}" y="${y+42}" fill="${on?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11">${on}/4 motores · ${ae.mode}</text>
+      </g>`;
+  }
+  function hDrum(x, y, w, h, lvl, tag, lvlColor){
+    const r = h/2, inner = h-16, lh = inner*lvl/100;
+    return `<ellipse cx="${x}" cy="${y+r}" rx="${r*0.42}" ry="${r}" fill="#55677F"/>
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#twMetalH)"/>
+      <ellipse cx="${x+w}" cy="${y+r}" rx="${r*0.42}" ry="${r}" fill="#8FA3BD"/>
+      <rect x="${x+24}" y="${y+8}" width="${w-48}" height="${inner}" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="4 3"/>
+      <rect x="${x+24}" y="${y+8+inner-lh}" width="${w-48}" height="${lh}" fill="url(#twLiq)" opacity=".85"/>
+      <text x="${x+w/2}" y="${y+h/2+4}" fill="${lvlColor==='#38D9A9'?'#DCE6F2':lvlColor}" font-family="${MONO}" font-size="12" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">${f0(lvl)}%</text>
+      <text x="${x}" y="${y-10}" fill="#DCE6F2" font-size="12" font-weight="600">${tag}</text>`;
+  }
+  function vDrum(x, y, w, h, lvl, tag, lvlColor){
+    const inner = h-30, lh = inner*lvl/100;
+    return `<ellipse cx="${x+w/2}" cy="${y+h+6}" rx="${w*0.7}" ry="9" fill="#000" opacity=".4"/>
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#twMetal)"/>
+      <path d="M${x} ${y} Q${x+w/2} ${y-w*0.55} ${x+w} ${y}" fill="url(#twMetalH)"/>
+      <path d="M${x} ${y+h} Q${x+w/2} ${y+h+w*0.4} ${x+w} ${y+h}" fill="#26313F"/>
+      <rect x="${x+w*0.45}" y="${y+15}" width="${w*0.4}" height="${inner}" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="4 3"/>
+      <rect x="${x+w*0.45}" y="${y+15+inner-lh}" width="${w*0.4}" height="${lh}" fill="url(#twLiq)" opacity=".85"/>
+      <text x="${x+w*0.65}" y="${y+15+inner-6}" fill="${lvlColor==='#38D9A9'?'#DCE6F2':lvlColor}" font-family="${MONO}" font-size="11" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">${f0(lvl)}%</text>
+      <text x="${x+w/2}" y="${y+h+34}" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${tag}</text>`;
+  }
+  // columna en corte (x0 = borde izquierdo, ancho 90, de y=95 a 596)
+  function column(lvl, lvlColor, tag){
+    const trays = [150,185,220,255,290,325,360,395,430,465];
+    const sumpH = 38*lvl/100, r = run();
+    return `<ellipse cx="380" cy="598" rx="58" ry="17" fill="#000" opacity=".45"/>
+      <rect x="335" y="540" width="90" height="56" fill="url(#twMetal)"/>
+      <rect x="335" y="95" width="90" height="450" fill="url(#twMetal)"/>
+      <ellipse cx="380" cy="95" rx="45" ry="13" fill="#9FB3CC"/>
+      <path d="M335 95 Q380 50 425 95" fill="url(#twMetalH)"/>
+      <g stroke="#1E2836" stroke-width="1.2" opacity=".7">${[150,220,290,360,430,500].map(y=>`<path d="M335 ${y} Q380 ${y+12} 425 ${y}"/>`).join('')}</g>
+      <path d="M382 118 L425 118 L425 528 L382 528 Z" fill="#0B1220" stroke="#4FC3F7" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <g stroke="#7E92AD" stroke-width="2">${trays.map(y=>`<path d="M384 ${y}H423"/>`).join('')}</g>
+      ${r ? `<g fill="#38D9A9" opacity=".75">${trays.map(y=>`<rect x="384" y="${y-4}" width="39" height="4"/>`).join('')}</g>
+      <g fill="#B8E8FF" class="tw-bubbles">${trays.slice(0,9).map((y,i)=>`<circle cx="${390+(i*7)%30}" cy="${y+16}" r="1.6"/><circle cx="${404+(i*5)%18}" cy="${y+10}" r="1.4"/>`).join('')}</g>` : ''}
+      <rect x="384" y="${528-sumpH}" width="39" height="${sumpH}" fill="url(#twLiq)" opacity=".85"/>
+      <text x="403" y="520" fill="${lvlColor==='#38D9A9'?'#DCE6F2':lvlColor}" font-family="${MONO}" font-size="10" font-weight="700" text-anchor="middle" paint-order="stroke" stroke="#0B1220" stroke-width="3">${f0(lvl)}%</text>
+      <text x="380" y="628" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${tag}</text>`;
+  }
+  function reboiler(reb, tag, tic, botColor){
+    const hot = reb.pv > (reb.low ? reb.low*0.7 : 150);
+    return `<path d="M335 560 H300 V590" fill="none" stroke="${hot?'#FFB300':'#4E6380'}" stroke-width="3"/>
+      <path d="M335 520 H318 V560" fill="none" stroke="${hot?'#FFCC66':'#4E6380'}" stroke-width="2" stroke-dasharray="3 3"/>
+      <ellipse cx="140" cy="590" rx="12" ry="26" fill="#55677F"/>
+      <rect x="140" y="564" width="160" height="52" fill="url(#twMetalH)"/>
+      <ellipse cx="300" cy="590" rx="12" ry="26" fill="#8FA3BD"/>
+      <path d="M160 590 H280" stroke="${hot?'url(#twHot)':'#4E6380'}" stroke-width="6" stroke-linecap="round"/>
+      <path d="M160 600 H280" stroke="${hot?'url(#twHot)':'#4E6380'}" stroke-width="6" stroke-linecap="round" opacity=".6"/>
+      <path d="M20 575 H140" stroke="${hot?'#FFB300':'#4E6380'}" stroke-width="3"/>
+      <path d="M140 605 H20" stroke="${hot?'#FF7043':'#4E6380'}" stroke-width="3"/>
+      ${valve(70, 605, hot?1:0, 'NC')}
+      <text x="22" y="568" fill="#FFB300" font-size="10" font-family="${MONO}">HOT OIL</text>
+      <text x="22" y="624" fill="#FF7043" font-size="10" font-family="${MONO}">HOT OIL</text>
+      <text x="220" y="636" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${tag}</text>
+      ${ctl(150, 498, 'A', f2(reb.sp), f2(reb.pv), '°F', botColor, tic)}`;
+  }
+
+  /* ===================== ESCENA: DEPRO / DEBU ===================== */
+  function sceneCol(C){
+    const r = run();
+    const reb = state.reboilers[C.reb], ae = state.aeros[C.aero];
+    const pA = state.pumps[C.pumps[0][0]].on, pB = state.pumps[C.pumps[1][0]].on, pOn = pA||pB;
+    const reflux = V(C.refluxKey), prod = V(C.prodKey), bot = V(C.botFlowKey);
+    const lvlCol = Math.max(0,Math.min(100,V(C.colKey))), lvlAcc = Math.max(0,Math.min(110,V(C.accKey)));
+    const pT = V(C.psigKey), tTop = V(C.topKey);
+    const ventOpen = r && pT > C.ventSP ? Math.min(1,(pT-C.ventSP)/15) : 0;
+    const ficSP = C.ficNom * (100-state.refluxSplit[C.split])/52;
+    const tRet = ae.pv * C.retRatio;
+    const tFeed = C.feedTemp(), tBotOut = C.botTemp(reb.pv);
+    const cP = zc(C.psigKey,pT), cTop = zc(C.topKey,tTop), cBot = zc(C.botKey,reb.pv,'#FFB300');
+    const cCol = zc(C.colKey,lvlCol,'#38D9A9'), cAcc = zc(C.accKey,lvlAcc,'#38D9A9');
+    const vs = state.vessels[C.colVessel] || {sp:50};
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="${C.title} en isométrico">${DEFS}${FLOOR}
+      <!-- venteo / colector de baja -->
+      <g class="tw-eq" data-tw-eq="venteo">
+        ${selBox('venteo', 12, 2, 296, 104)}
+        ${line('M380 40 H170 V78 H40', '#4FC3F7', ventOpen>0.02, 'twArrB', 3)}
+        ${valve(170, 78, ventOpen, 'NC')}
+        <text x="20" y="72" fill="#8A9BB3" font-size="11">Venteo</text>
+        <text x="20" y="98" fill="#8A9BB3" font-size="11">Colector de Baja</text>
+        ${ctl(196, 34, 'A', f0(C.ventSP), f0(pT), 'psig', cP, 'PIC venteo')}
+      </g>
+      <!-- columna -->
+      <g class="tw-eq" data-tw-eq="columna">
+        ${selBox('columna', 318, 52, 124, 590)}
+        ${column(lvlCol, cCol, C.colTag)}
+      </g>
+      <!-- alimentación -->
+      <g class="tw-eq" data-tw-eq="alimentacion">
+        ${selBox('alimentacion', 12, 262, 320, 64)}
+        ${line('M20 300 H335', '#38D9A9', r, 'twArrG')}
+        <text x="20" y="290" fill="#DCE6F2" font-size="12" font-weight="600">desde ${C.feedFrom}</text>
+        ${rd(214, 276, f2(tFeed), '°F', '#7FD4FF', 96)}
+      </g>
+      <!-- vapor de tope y PIC de columna -->
+      ${line('M380 62 V40 H640 V70', '#4FC3F7', r, null, 5)}
+      <g class="tw-eq" data-tw-eq="columna">${ctl(452, 2, 'A', f2(C.colSP), f2(pT), 'psig', cP, 'PIC columna')} ${rd(566, 10, f2(tTop), '°F', cTop, 84)}</g>
+      <!-- aero -->
+      <g class="tw-eq" data-tw-eq="condensador">
+        ${selBox('condensador', 552, 58, 432, 92)}
+        ${aero2x2(560, 70, ae, C.aeroTag, f0(ae.pv)+' °F salida')}
+      </g>
+      ${line('M745 134 V258', '#38D9A9', r)}
+      <!-- acumulador -->
+      <g class="tw-eq" data-tw-eq="acumulador">
+        ${selBox('acumulador', 600, 228, 300, 104)}
+        ${hDrum(640, 258, 200, 64, Math.min(100,lvlAcc), C.accTag, cAcc)}
+        ${rd(858, 266, f1(lvlAcc), '%', cAcc, 64)}
+      </g>
+      <!-- bombas -->
+      ${line('M740 322 V366 H690 V400 M740 366 H800 V400', '#38D9A9', pOn)}
+      <g class="tw-eq" data-tw-eq="bombas">
+        ${selBox('bombas', 610, 392, 236, 86)}
+        ${pump(690, 420, pA, 'A')}${pump(800, 420, pB, 'B')}
+      </g>
+      <!-- reflujo con FIC -->
+      ${line('M674 420 H560 V180 H425', '#38D9A9', reflux>1, 'twArrG')}
+      <g class="tw-eq" data-tw-eq="reflujo">
+        ${selBox('reflujo', 438, 150, 240, 126)}
+        ${valve(560, 232, Math.min(1,ficSP/C.ficNom), '')}
+        ${ctl(452, 248, 'A', f2(ficSP), f2(reflux), 'USGPM', '#38D9A9', C.ficTag)}
+        ${rd(572, 254, f2(reflux ? reflux*(C.ficExtra/C.ficNom) : 0), 'USGPM', '#7FD4FF', 98)}
+        ${rd(440, 158, f2(tRet), '°F', '#7FD4FF', 90)}
+      </g>
+      <!-- producto -->
+      ${line('M816 420 H860 V470 H975', '#38D9A9', prod>0.3, 'twArrG')}
+      <g class="tw-eq" data-tw-eq="producto">
+        ${selBox('producto', 856, 440, 136, 104)}
+        <text x="975" y="462" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">${C.prodLabel}</text>
+        ${rd(880, 480, f2(prod), 'USGPM', '#38D9A9', 104)}
+        ${C.prodTemp ? rd(880, 508, f2(C.prodTemp()), '°F', '#7FD4FF', 104) : ctl(880, 508, C.prodCtl.mode, f2(C.prodCtl.sp), f2(r?C.prodCtl.pv:0), '', '#7FD4FF')}
+      </g>
+      <!-- reboiler -->
+      <g class="tw-eq" data-tw-eq="reboiler">
+        ${selBox('reboiler', 12, 478, 304, 168)}
+        ${reboiler(reb, C.rebTag, C.ticTag, cBot)}
+      </g>
+      <!-- fondo: LIC de columna, válvula y salida -->
+      <g class="tw-eq" data-tw-eq="fondo">
+        ${selBox('fondo', 430, 456, 548, 220)}
+        ${ctl(440, 478, 'A', f2(vs.sp), f2(lvlCol), '%', cCol, 'LIC columna')}
+        ${line('M380 598 V650 H975', '#38D9A9', bot>0.3, 'twArrG')}
+        ${valve(760, 650, bot>0.3?1:0, 'NC')}
+        ${rd(620, 600, f2(r?tBotOut:60), '°F', '#FFB300', 96)}
+        ${C.botCtl ? ctl(450, 560, C.botCtl.mode, f2(C.botCtl.sp), f2(bot), 'USGPM', '#38D9A9', C.botCtl.tag) : rd(860, 600, f2(bot), 'USGPM', '#38D9A9', 112)}
+        <text x="975" y="640" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">${C.botLabel}</text>
+      </g>
+    </svg>`;
+  }
+
+  /* ===================== ESCENA: DEETANIZADOR ===================== */
+  function sceneDeet(){
+    const r = run(), reb = state.reboilers.deet;
+    const pT = V('psigDeet'), tTop = V('topTempDeet'), lvl = Math.max(0,Math.min(100,V('lvlD810302')));
+    const tUp = r ? tTop + 7.95 : tTop;          // −15.41 → −7.46 °F
+    const tMid = V('deetTrayMidTemp'), tLow = V('deetTrayLowTemp'), dp = V('deetDP');
+    const tBot = r ? reb.pv - 11.63 : reb.pv;     // 197.87 → 186.24 °F
+    const t0304 = r ? 13.23 + (V('cond306InTemp') + 57.68)*0.3 : 60;
+    const t0303 = r ? 78.39 + (V('cond306InTemp') + 57.68)*0.2 : 60;
+    const reflux = V('deetRefluxGPM');
+    const vs = state.vessels.lvlD810302;
+    const cP = zc('psigDeet',pT), cTop = zc('topTempDeet',tTop), cBot = zc('bottomTempDeet',reb.pv,'#FFB300'), cLvl = zc('lvlD810302',lvl,'#38D9A9');
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Deetanizador en isométrico">${DEFS}${FLOOR}
+      <!-- tope a D21.0306 -->
+      <g class="tw-eq" data-tw-eq="columna">
+        ${line('M380 62 V40 H30', '#9AD8FF', r, 'twArrS', 4)}
+        <text x="34" y="30" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0306</text>
+        ${rd(150, 10, f2(pT), 'psig', cP, 96)} ${rd(254, 10, f2(tTop), '°F', cTop, 84)}
+      </g>
+      <!-- entradas por la izquierda -->
+      <g class="tw-eq" data-tw-eq="alimentacion">
+        ${selBox('alimentacion', 12, 96, 326, 226)}
+        ${line('M30 120 H335', '#38D9A9', reflux>1, 'twArrG')}
+        <text x="34" y="112" fill="#DCE6F2" font-size="12" font-weight="600">desde D31.0302 (reflujo)</text>
+        ${line('M30 220 H335', '#38D9A9', r, 'twArrG')}
+        <text x="34" y="212" fill="#DCE6F2" font-size="12" font-weight="600">desde D21.0304</text>
+        ${rd(236, 190, f2(t0304), '°F', '#7FD4FF', 92)}
+        ${line('M30 300 H335', '#38D9A9', r, 'twArrG')}
+        <text x="34" y="292" fill="#DCE6F2" font-size="12" font-weight="600">desde D21.0303</text>
+        ${rd(236, 270, f2(t0303), '°F', '#7FD4FF', 92)}
+      </g>
+      <!-- columna -->
+      <g class="tw-eq" data-tw-eq="columna">
+        ${selBox('columna', 318, 52, 124, 590)}
+        ${column(lvl, cLvl, 'D81.0302')}
+      </g>
+      <!-- perfil a la derecha + ΔP -->
+      <g class="tw-eq" data-tw-eq="columna">
+        <path d="M425 150 H470 M425 250 H470 M425 360 H470 M425 560 H470" stroke="#4FC3F7"/>
+        ${rd(470, 139, f2(tUp), '°F', cTop, 96)}
+        ${rd(470, 239, f2(tMid), '°F', zc('deetTrayMidTemp',tMid), 96)}
+        ${rd(470, 349, f2(tLow), '°F', zc('deetTrayLowTemp',tLow), 96)}
+        <path d="M566 162 H600 V360 H566" fill="none" stroke="#5E6E85" stroke-dasharray="3 3"/>
+        ${rd(612, 240, f2(dp), 'PSID', '#7FD4FF', 96)}
+        ${rd(470, 549, f2(tBot), '°F', cBot, 96)}
+      </g>
+      <!-- reboiler -->
+      <g class="tw-eq" data-tw-eq="reboiler">
+        ${selBox('reboiler', 12, 478, 304, 168)}
+        ${reboiler(reb, 'D21.0307', 'TIC-0307', cBot)}
+      </g>
+      <!-- fondo a Depropanizador con LIC -->
+      <g class="tw-eq" data-tw-eq="fondo">
+        ${selBox('fondo', 600, 420, 386, 252)}
+        ${ctl(700, 440, 'A', f2(vs.sp), f2(lvl), '%', cLvl, 'LIC-0302B')}
+        ${line('M380 598 V650 H975', '#38D9A9', r && lvl>3, 'twArrG')}
+        ${valve(752, 650, (r && lvl>3)?Math.min(1,lvl/vs.sp*0.6):0, 'NC')}
+        <path d="M752 630 V478" stroke="#5E6E85" stroke-dasharray="3 3"/>
+        <text x="975" y="640" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">a Depropanizador</text>
+      </g>
+    </svg>`;
+  }
+
+  /* ===================== ESCENA: REFLUJO DEETANIZADOR ===================== */
+  function sceneRefDeet(){
+    const r = run();
+    const tIn1 = V('cond306InTemp');                         // desde D21.0301B
+    const tIn2 = r ? tIn1 * (105.30/57.68) : 60;             // desde D21.0305
+    const tVap = V('topTempDeet') - 0.36;                    // −15.77 °F
+    const tOut = V('d210306OutTemp');
+    const pT = V('deetRefluxPSIG') || V('psigDeet');
+    const lvl = Math.max(0,Math.min(100,V('lvlD820302')));
+    const reflux = V('deetRefluxGPM');
+    const pA = state.pumps.deet.on, pB = state.pumps.deetB.on, pOn = pA||pB;
+    const vs = state.vessels.lvlD820302;
+    const gasOpen = r && pT > 285 ? Math.min(1,(pT-285)/10) : (r?0.15:0);
+    const cP = zc('psigDeet',pT), cLvl = zc('lvlD820302',lvl,'#38D9A9'), cOut = zc('d210306OutTemp',tOut,'#9AD8FF');
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Reflujo del Deetanizador en isométrico">${DEFS}${FLOOR}
+      <!-- condensador D21.0306 y corrientes frías -->
+      <g class="tw-eq" data-tw-eq="condensador">
+        ${selBox('condensador', 12, 30, 976, 160)}
+        ${line('M30 90 H360 V108 H420', '#9AD8FF', r, null, 3)}
+        <text x="34" y="80" fill="#DCE6F2" font-size="12" font-weight="600">D21.0301B</text>
+        ${rd(130, 60, f2(tIn1), '°F', '#9AD8FF', 90)}
+        ${valve(300, 90, r?1:0, '', true)}
+        ${line('M30 160 H420 V134', '#9AD8FF', r, null, 3)}
+        <text x="34" y="152" fill="#DCE6F2" font-size="12" font-weight="600">D21.0305</text>
+        ${rd(130, 132, f2(tIn2), '°F', '#9AD8FF', 90)}
+        ${valve(330, 160, r?1:0, '')}
+        <ellipse cx="440" cy="121" rx="12" ry="26" fill="#55677F"/>
+        <rect x="440" y="95" width="210" height="52" fill="url(#twMetalH)"/>
+        <ellipse cx="650" cy="121" rx="12" ry="26" fill="#8FA3BD"/>
+        <rect x="458" y="102" width="174" height="38" fill="#0B1220" stroke="#9AD8FF" stroke-dasharray="4 3"/>
+        <g stroke="${r?'#9AD8FF':'#3C4E68'}" stroke-width="2.5"><path d="M462 110 H628"/><path d="M462 118 H628"/><path d="M462 126 H628"/><path d="M462 134 H628"/></g>
+        <text x="545" y="88" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D21.0306</text>
+        ${line('M975 70 H560 V95', '#4FC3F7', r, null, 4)}
+        <text x="975" y="60" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">desde Deetanizador</text>
+        ${rd(820, 76, f2(tVap), '°F', '#7FD4FF', 90)}
+        ${line('M690 121 H730 V60', '#9AD8FF', r, null, 2)}${valve(730, 100, r?1:0, '', true)}
+      </g>
+      <!-- salida a acumulador -->
+      ${line('M545 147 V200 H330 V228', '#38D9A9', r)}
+      ${rd(400, 206, f2(tOut), '°F', cOut, 90)}
+      <!-- acumulador vertical + PIC de gas -->
+      <g class="tw-eq" data-tw-eq="gas">
+        ${selBox('gas', 12, 240, 278, 82)}
+        ${line('M300 290 H30', '#4FC3F7', gasOpen>0.02, 'twArrB', 3)}
+        ${valve(150, 290, gasOpen, 'NC')}
+        <text x="34" y="282" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0305</text>
+        ${ctl(176, 248, 'A', '285.00', f2(pT), 'psig', cP, 'PIC-0302')}
+      </g>
+      <g class="tw-eq" data-tw-eq="acumulador">
+        ${selBox('acumulador', 290, 210, 120, 330)}
+        ${vDrum(300, 240, 80, 230, lvl, 'D82.0302', cLvl)}
+      </g>
+      <!-- bombas -->
+      ${line('M340 498 V530 H470 M400 530 V590 H470', '#38D9A9', pOn)}
+      <g class="tw-eq" data-tw-eq="bombas">
+        ${selBox('bombas', 420, 506, 120, 130)}
+        ${pump(500, 530, pA, 'A')}${pump(500, 590, pB, 'B')}
+      </g>
+      <!-- reflujo FIC (NO) a Deetanizador -->
+      ${line('M516 530 H720 V340 H975', '#38D9A9', reflux>1, 'twArrG')}
+      <g class="tw-eq" data-tw-eq="reflujo">
+        ${selBox('reflujo', 560, 290, 300, 110)}
+        ${valve(720, 380, reflux>1?1:0.6, 'NO', true)}
+        ${ctl(580, 316, 'A', '33.00', f2(reflux), 'GPM', '#38D9A9', 'FIC-0306')}
+        <text x="975" y="330" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">Deetanizador</text>
+      </g>
+      <!-- nivel LIC (NC) a Deetanizador -->
+      <g class="tw-eq" data-tw-eq="nivel">
+        ${selBox('nivel', 760, 410, 228, 220)}
+        ${ctl(800, 440, 'A', f1(vs.sp), f1(lvl), '%', cLvl, 'LIC-0302')}
+        ${line('M600 530 V600 H975', '#38D9A9', pOn && lvl>vs.sp, 'twArrG')}
+        ${valve(860, 600, (pOn && lvl>vs.sp)?Math.max(0.2,Math.min(1,(lvl-vs.sp)/20)):0, 'NC')}
+        <path d="M860 580 V478" stroke="#5E6E85" stroke-dasharray="3 3"/>
+        <text x="975" y="590" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">Deetanizador</text>
+      </g>
+    </svg>`;
+  }
+
+  /* ===================== ESCENA: MEDICIÓN ALMACENAMIENTO ===================== */
+  const LANES = [
+    {id:'propano', label:'Propano', tag:'PIC0504B', y:130, flowKey:'propanoTnD', unit:'Tn/D', mode:'A', sp:30.00, tempKey:'propanoTemp', tankKey:'tankPropano', pump:'depro', split:'depro', extra:['10.2','30.20'], dew:true},
+    {id:'butano',  label:'Butano',  tag:'PIC0510B', y:300, flowKey:'butanoTnD',  unit:'Tn/D', mode:'A', sp:23.24, tempKey:'butanoTemp',  tankKey:'tankButano',  pump:'debuTope', split:'debu', extra:['7.1','20.94']},
+    {id:'gasolina',label:'Gasolina',tag:'LIC0505',  y:480, flowKey:'gasolinaM3D',unit:'M3/D', mode:'A', sp:50.00, tempKey:'gasolinaTemp',tankKey:'tankGasolina',pump:'debuFondo', split:null, extra:['13.07','41.47']}
+  ];
+  const laneOf = id => LANES.find(l=>l.id===id);
+  function sceneStorage(){
+    const ae = state.aeros.gasolina;
+    const lane = L => {
+      const q = V(L.flowKey), t = V(L.tempKey), y = L.y, on = q > 0.3;
+      const lvl = Math.max(0,Math.min(100,V(L.tankKey))), cT = zoneColor('medicion_almacen',L.tankKey,lvl,'#38D9A9');
+      const cQ = zoneColor('medicion_almacen',L.flowKey,q,'#38D9A9');
+      const start = L.id==='gasolina' ? 340 : 30;
+      const tank = L.id==='gasolina'
+        ? `<rect x="880" y="${y-44}" width="70" height="80" fill="url(#twMetal)"/><path d="M880 ${y-44} L915 ${y-58} L950 ${y-44} Z" fill="#8FA3BD"/>
+           <rect x="905" y="${y-38}" width="22" height="70" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="3 3"/><rect x="905" y="${y+32-70*lvl/100}" width="22" height="${70*lvl/100}" fill="url(#twLiq)"/>`
+        : `<ellipse cx="880" cy="${y}" rx="9" ry="24" fill="#55677F"/><rect x="880" y="${y-24}" width="80" height="48" fill="url(#twMetalH)"/><ellipse cx="960" cy="${y}" rx="9" ry="24" fill="#8FA3BD"/>
+           <rect x="890" y="${y-18}" width="60" height="36" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="3 3"/><rect x="890" y="${y+18-36*lvl/100}" width="60" height="${36*lvl/100}" fill="url(#twLiq)"/>`;
+      return `<g class="tw-eq" data-tw-eq="${L.id}">
+        ${selBox(L.id, 12, y-(L.id==='gasolina'?150:84), 976, L.id==='gasolina'?212:150)}
+        <path d="M30 ${y-40} H${L.id==='gasolina'?190:300}" stroke="#5E6E85" stroke-dasharray="4 4"/>
+        <text x="34" y="${y-48}" fill="#8A9BB3" font-family="${MONO}" font-size="11">${L.tag}</text>
+        <path d="M410 ${y-40} V${y-14}" stroke="#5E6E85" stroke-dasharray="4 4"/>
+        ${line(`M${start} ${y} H770`, '#38D9A9', on, 'twArrG', 4)}
+        <text x="34" y="${y-8}" fill="#DCE6F2" font-size="13" font-weight="700">${L.label}</text>
+        ${rd(250, y-34, f2(t), '°F', '#7FD4FF', 92)}
+        ${ctl(360, y-82, L.mode, f2(L.sp), f2(q), L.unit, cQ, '')}
+        <rect x="408" y="${y-10}" width="6" height="20" fill="#8FA3BD"/>
+        ${rd(520, y-74, L.extra[0], '', '#A9B8CC', 70)} ${rd(600, y-74, L.extra[1], '', '#A9B8CC', 80)}
+        ${valve(620, y, on?1:0, 'NC')}
+        <text x="775" y="${y+4}" fill="#DCE6F2" font-size="12" font-weight="600">Almacenamiento</text>
+        ${L.dew ? line(`M690 ${y} V${y+42} H770`, '#38D9A9', on, 'twArrG', 3)+`<text x="775" y="${y+46}" fill="#DCE6F2" font-size="12" font-weight="600">Dew Point</text>` : ''}
+        <g opacity=".9">${tank}<text x="${L.id==='gasolina'?915:920}" y="${y+(L.id==='gasolina'?54:40)}" fill="${cT==='#38D9A9'?'#A9B8CC':cT}" font-family="${MONO}" font-size="10" text-anchor="middle">${f0(lvl)}%</text></g>
+      </g>`;
+    };
+    const fansOn = ae.fans.filter(Boolean).length;
+    const fan = (cx, cy, on) => `<ellipse cx="${cx}" cy="${cy}" rx="16" ry="6" fill="#0B1220" stroke="${on?'#4FC3F7':'#3C4E68'}"/>
+      <g class="${on?'tw-fan':''}" style="transform-origin:${cx}px ${cy}px"><path d="M${cx} ${cy} l12 -1 M${cx} ${cy} l-10 4 M${cx} ${cy} l-3 -6" stroke="${on?'#7FD4FF':'#4E6380'}" stroke-width="2.5" stroke-linecap="round"/></g>`;
+    const aeroSvg = `<g class="tw-eq" data-tw-eq="aerogas">
+        ${selBox('aerogas', 70, 516, 300, 130)}
+        <path d="M100 540 L280 540 L320 566 L140 566 Z" fill="#2A3749" stroke="#4E6380"/>
+        <path d="M140 566 L320 566 L320 594 L140 594 Z" fill="#1A2433" stroke="#4E6380"/>
+        <path d="M100 540 L140 566 L140 594 L100 568 Z" fill="#141C29" stroke="#4E6380"/>
+        ${fan(170,548,ae.fans[0])}${fan(240,548,ae.fans[1])}${fan(190,559,ae.fans[2])}${fan(260,559,ae.fans[3])}
+        <path d="M30 480 H80 V594 M290 594 V610 H330 V480 H340" fill="none" stroke="#38D9A9" stroke-width="4" opacity="${V('gasolinaM3D')>0.3?1:.28}"/>
+        <text x="110" y="532" fill="#DCE6F2" font-size="12" font-weight="600">D27.0503A/B</text>
+        <text x="110" y="628" fill="${fansOn?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11">${fansOn}/4 motores · ${ae.mode} · ${f0(ae.pv)} °F</text>
+      </g>`;
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Medición y almacenamiento">${DEFS}
+      <text x="990" y="34" fill="#6F819B" font-size="10" text-anchor="end">tanques: extra del simulador</text>
+      ${LANES.map(lane).join('')}${aeroSvg}</svg>`;
+  }
+
+  /* ===================== MARCO ===================== */
   function renderShell(){
     const root = $('twin-root'); if(!root) return;
     root.innerHTML = `
@@ -7131,335 +7540,125 @@ setInterval(tickChrom, 1500);
       <div class="tw-foot" id="tw-foot"></div>`;
     renderAreas(); renderScene(); renderSide(); renderFoot();
   }
-
   function renderAreas(){
     const el = $('tw-areas'); if(!el) return;
-    const list = AREAS.filter(a=>a.sec===twin.zone);
-    el.innerHTML = list.map(a=>`<button type="button" class="tw-area ${a.id===twin.area?'on':''} ${READY[a.id]?'':'soon'}" data-tw-area="${a.id}">${esc(a.label)}${READY[a.id]?'':' <small>clásica</small>'}</button>`).join('');
+    el.innerHTML = AREAS.filter(a=>a.sec===twin.zone).map(a=>`<button type="button" class="tw-area ${a.id===twin.area?'on':''} ${READY[a.id]?'':'soon'}" data-tw-area="${a.id}">${esc(a.label)}${READY[a.id]?'':' <small>clásica</small>'}</button>`).join('');
   }
-
-  /* ---------------- ESCENA ---------------- */
   function renderScene(){
     const box = $('tw-svg'); if(!box) return;
     const a = AREAS.find(x=>x.id===twin.area);
-    $('tw-title').textContent = a ? a.label : '';
     if(!READY[twin.area]){
+      $('tw-title').textContent = a ? a.label : '';
       $('tw-subtitle').textContent = 'Todavía no está en 3D';
-      box.innerHTML = `<div class="tw-soon"><div>Esta pantalla todavía no está pasada al gemelo 3D.</div>
-        <button type="button" class="tw-btn pri" data-tw-classic="${twin.area}">Abrir en el panel clásico</button></div>`;
+      box.innerHTML = `<div class="tw-soon"><div>Esta pantalla todavía no está pasada al gemelo 3D.</div><button type="button" class="tw-btn pri" data-tw-classic="${twin.area}">Abrir en el panel clásico</button></div>`;
       return;
     }
     const C = colOf();
-    $('tw-title').textContent = C.title;
-    $('tw-subtitle').textContent = C.sub;
-    box.innerHTML = sceneColumn(C);
+    $('tw-title').textContent = C.title; $('tw-subtitle').textContent = C.sub;
+    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : sceneStorage();
   }
 
-  function sceneColumn(C){
-    const load = state.loadSmooth || 0;
-    const run = load > 0.03;
-    const reb = state.reboilers[C.reb];
-    const aero = C.cond.type==='aero' ? state.aeros[C.cond.key] : null;
-    const pA = state.pumps[C.pumps[0][0]].on, pB = state.pumps[C.pumps[1][0]].on;
-    const pumpOn = pA || pB;
-    const reflux = V(C.refluxKey);
-    const prod = C.prodKey ? V(C.prodKey) : 0;
-    const bot = C.botFlowKey ? V(C.botFlowKey) : (run ? 1 : 0);
-    const botPumpOn = C.botPump ? state.pumps[C.botPump].on : true;
-    const lvlBot = Math.max(0, Math.min(100, V(C.colKey)));
-    const lvlAcc = Math.max(0, Math.min(100, V(C.accKey)));
-    const pT = V(C.psigKey), tTop = V(C.topKey), tBot = V(C.botKey);
-    const hot = reb.pv > (reb.low ? reb.low*0.7 : 150);
-    const A = C.area;
-    const zc = (k,v,n) => zoneColor(AREA_COL_AREA(k)||A, k, v, n);
-    const sel = twin.sel;
-    const selBox = (id, x, y, w, h) => sel===id ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="#4FC3F7" stroke-width="2" stroke-dasharray="3 5" class="tw-selbox"></rect>` : '';
-    const flow = (on) => on ? 'tw-flow' : 'tw-noflow';
-    const trays = [150,185,220,255,290,325,360,395,430,465];
-    const sumpH = 38 * lvlBot/100;
-    const accH = 60 * lvlAcc/100;
-    const cTop = zc(C.topKey,tTop);
-    const cP = zc(C.psigKey,pT);
-    const cBot = zc(C.botKey,tBot,'#FFB300');
-    const cLvl = zc(C.colKey,lvlBot,'#38D9A9');
-    const cAcc = zc(C.accKey,lvlAcc,'#38D9A9');
-    // perfil: usa sensores reales si la columna los tiene, si no interpola
-    const mid1 = C.midKeys ? V(C.midKeys[0]) : tTop + (tBot-tTop)*.35;
-    const mid2 = C.midKeys ? V(C.midKeys[1]) : tTop + (tBot-tTop)*.7;
-    const prof = [[140,'TOPE',tTop,cTop],[255,C.midKeys?'MEDIA':'P10',mid1,C.midKeys?zc(C.midKeys[0],mid1):'#7FD4FF'],[370,C.midKeys?'INF.':'P20',mid2,C.midKeys?zc(C.midKeys[1],mid2,'#FFCC66'):'#FFCC66'],[505,'FDO',tBot,cBot]];
-    const cold = C.cond.type==='hx';
-    const vapCol = cold ? '#9AD8FF' : '#4FC3F7';
-
-    // condensador
-    let condSvg;
-    if(aero){
-      const fanXs = [612, 668, 724, 780];
-      const fansOn = aero.fans.filter(Boolean).length;
-      condSvg = `
-      <path d="M560 92 L800 92 L840 120 L600 120 Z" fill="#2A3749" stroke="#4E6380"/>
-      <path d="M600 120 L840 120 L840 150 L600 150 Z" fill="#1A2433" stroke="#4E6380"/>
-      <path d="M560 92 L600 120 L600 150 L560 122 Z" fill="#141C29" stroke="#4E6380"/>
-      ${fanXs.map((x,i)=>{ const on = aero.fans[i]; return `
-        <ellipse cx="${x+12}" cy="106" rx="24" ry="8" fill="#0B1220" stroke="${on?'#4FC3F7':'#3C4E68'}"/>
-        <g class="${on?'tw-fan':''}" style="transform-origin:${x+12}px 106px">
-          <path d="M${x+12} 106 l18 -2 M${x+12} 106 l-14 6 M${x+12} 106 l-4 -8" stroke="${on?'#7FD4FF':'#4E6380'}" stroke-width="3" stroke-linecap="round"/>
-        </g>`; }).join('')}
-      <g stroke="#3C4E68" stroke-width="2"><path d="M610 150 L590 230"/><path d="M830 150 L850 230"/></g>
-      <g font-family="Inter, sans-serif" font-size="12">
-        <text x="852" y="104" fill="#DCE6F2" font-weight="600">${C.cond.tag}</text>
-        <text x="852" y="120" fill="#8A9BB3">${C.cond.label}</text>
-        <text x="852" y="138" fill="${fansOn?'#33D69F':'#FF6B6B'}" font-family="JetBrains Mono, monospace" font-size="11">${fansOn}/4 vent · ${aero.mode}</text>
-        <text x="852" y="154" fill="#7FD4FF" font-family="JetBrains Mono, monospace" font-size="11">${f0(aero.pv)} °F</text>
-      </g>`;
-    } else {
-      const tOut = V(C.cond.outKey), tIn = C.cond.inKey ? V(C.cond.inKey) : null;
-      condSvg = `
-      <ellipse cx="590" cy="121" rx="14" ry="29" fill="#55677F"/>
-      <rect x="590" y="92" width="230" height="58" fill="url(#twMetalH)"/>
-      <ellipse cx="820" cy="121" rx="14" ry="29" fill="#8FA3BD"/>
-      <rect x="610" y="100" width="190" height="42" fill="#0B1220" stroke="#9AD8FF" stroke-dasharray="4 3"/>
-      <g stroke="${run?'#9AD8FF':'#3C4E68'}" stroke-width="2.5" fill="none">
-        <path d="M614 108 H796"/><path d="M614 116 H796"/><path d="M614 124 H796"/><path d="M614 132 H796"/>
-      </g>
-      ${run?`<g fill="#E6F6FF" opacity=".7" class="tw-bubbles"><circle cx="640" cy="112" r="1.5"/><circle cx="700" cy="128" r="1.5"/><circle cx="760" cy="114" r="1.5"/></g>`:''}
-      <path d="M700 150 V164 M660 92 V78 H600 M780 92 V78 H840" stroke="#7FB8E0" stroke-width="3" fill="none"/>
-      <g font-family="Inter, sans-serif" font-size="12">
-        <text x="852" y="104" fill="#DCE6F2" font-weight="600">${C.cond.tag}</text>
-        <text x="852" y="120" fill="#8A9BB3">${C.cond.label}</text>
-        ${tIn!==null?`<text x="852" y="138" fill="#9AD8FF" font-family="JetBrains Mono, monospace" font-size="11">frío ${f0(tIn)} °F</text>`:''}
-        <text x="852" y="154" fill="#9AD8FF" font-family="JetBrains Mono, monospace" font-size="11">salida ${f0(tOut)} °F</text>
-      </g>`;
-    }
-
-    return `
-<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="${C.title} en isométrico">
-  <defs>
-    <linearGradient id="twMetal" x1="0" x2="1"><stop offset="0" stop-color="#3B4A60"/><stop offset=".35" stop-color="#8FA3BD"/><stop offset=".55" stop-color="#6B7F99"/><stop offset="1" stop-color="#26313F"/></linearGradient>
-    <linearGradient id="twMetalH" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#8FA3BD"/><stop offset=".5" stop-color="#55677F"/><stop offset="1" stop-color="#26313F"/></linearGradient>
-    <linearGradient id="twLiq" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#38D9A9"/><stop offset="1" stop-color="#0F7A5C"/></linearGradient>
-    <linearGradient id="twHot" x1="0" x2="1"><stop offset="0" stop-color="#FFB300"/><stop offset="1" stop-color="#FF7043"/></linearGradient>
-    <pattern id="twGrid" width="40" height="23" patternUnits="userSpaceOnUse" patternTransform="skewX(-60)"><path d="M0 0H40M0 0V23" stroke="#152033" stroke-width="1"/></pattern>
-    <marker id="twArrG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#38D9A9"/></marker>
-  </defs>
-
-  <path d="M60 600 L500 680 L960 590 L520 520 Z" fill="url(#twGrid)"/>
-  <path d="M60 600 L500 680 L960 590 L520 520 Z" fill="none" stroke="#1C2738"/>
-
-  <!-- ===== COLUMNA ===== -->
-  <g class="tw-eq" data-tw-eq="columna">
-    ${selBox('columna', 318, 52, 124, 552)}
-    <ellipse cx="380" cy="598" rx="58" ry="17" fill="#000" opacity=".45"/>
-    <rect x="335" y="540" width="90" height="56" fill="url(#twMetal)"/>
-    <rect x="335" y="95" width="90" height="450" fill="url(#twMetal)"/>
-    <ellipse cx="380" cy="95" rx="45" ry="13" fill="#9FB3CC"/>
-    <path d="M335 95 Q380 50 425 95" fill="url(#twMetalH)"/>
-    <g stroke="#1E2836" stroke-width="1.2" opacity=".7">
-      ${[150,220,290,360,430,500].map(y=>`<path d="M335 ${y} Q380 ${y+12} 425 ${y}"/>`).join('')}
-    </g>
-    <path d="M382 118 L425 118 L425 528 L382 528 Z" fill="#0B1220" stroke="#4FC3F7" stroke-width="1.2" stroke-dasharray="4 3"/>
-    <g stroke="#7E92AD" stroke-width="2">${trays.map(y=>`<path d="M384 ${y}H423"/>`).join('')}</g>
-    ${run ? `<g fill="#38D9A9" opacity=".75">${trays.map(y=>`<rect x="384" y="${y-4}" width="39" height="4"/>`).join('')}</g>
-    <g fill="#B8E8FF" class="tw-bubbles">${trays.slice(0,9).map((y,i)=>`<circle cx="${390+(i*7)%30}" cy="${y+16}" r="1.6"/><circle cx="${404+(i*5)%18}" cy="${y+10}" r="1.4"/>`).join('')}</g>` : ''}
-    <rect x="384" y="${528-sumpH}" width="39" height="${sumpH}" fill="url(#twLiq)" opacity=".85"/>
-    <text x="403" y="520" fill="${lvlBot>30?'#04261C':cLvl}" font-family="JetBrains Mono, monospace" font-size="10" font-weight="700" text-anchor="middle">${f0(lvlBot)}%</text>
-    <text x="380" y="625" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${C.colTag}</text>
-  </g>
-
-  <g font-family="JetBrains Mono, monospace" font-size="11">
-    ${prof.map(([y,l,t,c])=>`
-      <path d="M335 ${y} H300" stroke="#4FC3F7"/>
-      <rect x="208" y="${y-12}" width="92" height="24" rx="4" fill="#0F1A2B" stroke="#24364F"/>
-      <text x="216" y="${y+4}" fill="#8A9BB3">${l}</text><text x="292" y="${y+4}" fill="${c}" text-anchor="end" font-weight="700">${f0(t)}°F</text>`).join('')}
-  </g>
-
-  <!-- vapor de tope -->
-  <path d="M380 62 V40 H640 V92" fill="none" stroke="${vapCol}" stroke-width="5" stroke-linejoin="round" opacity="${run?.9:.3}"/>
-  <path d="M380 62 V40 H640 V92" fill="none" stroke="#E6F6FF" stroke-width="1.5" stroke-dasharray="6 10" class="${flow(run)}"/>
-  <g font-family="JetBrains Mono, monospace" font-size="11" class="tw-eq" data-tw-eq="columna">
-    <rect x="448" y="10" width="140" height="24" rx="4" fill="#0F1A2B" stroke="#24364F"/>
-    <text x="456" y="26" fill="#8A9BB3">${C.picTag}</text><text x="580" y="26" fill="${cP}" text-anchor="end" font-weight="700">${f0(pT)} psig</text>
-  </g>
-
-  <!-- ===== CONDENSADOR ===== -->
-  <g class="tw-eq" data-tw-eq="condensador">
-    ${selBox('condensador', 552, 72, 300, 92)}
-    ${condSvg}
-  </g>
-  <path d="M720 150 V262" fill="none" stroke="#38D9A9" stroke-width="4" opacity="${run?1:.3}"/>
-
-  <!-- ===== ACUMULADOR ===== -->
-  <g class="tw-eq" data-tw-eq="acumulador">
-    ${selBox('acumulador', 588, 236, 266, 112)}
-    <ellipse cx="610" cy="300" rx="16" ry="38" fill="#55677F"/>
-    <rect x="610" y="262" width="220" height="76" fill="url(#twMetalH)"/>
-    <ellipse cx="830" cy="300" rx="16" ry="38" fill="#8FA3BD"/>
-    <path d="M640 272 H800 V334 H640 Z" fill="#0B1220" stroke="#4FC3F7" stroke-dasharray="4 3"/>
-    <rect x="640" y="${334-accH}" width="160" height="${accH}" fill="url(#twLiq)" opacity=".85"/>
-    <text x="720" y="322" fill="${lvlAcc>25?'#04261C':cAcc}" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700" text-anchor="middle">${f0(lvlAcc)}%</text>
-    <g stroke="#3C4E68" stroke-width="3"><path d="M650 338 V356"/><path d="M790 338 V356"/></g>
-    <text x="610" y="252" fill="#DCE6F2" font-size="12" font-weight="600">${C.accTag} Acumulador</text>
-  </g>
-
-  <!-- ===== BOMBAS ===== -->
-  <path d="M720 338 V380 H650 V420 M720 380 H800 V420" fill="none" stroke="#38D9A9" stroke-width="3" opacity="${pumpOn?1:.3}"/>
-  <g class="tw-eq" data-tw-eq="bombas">
-    ${selBox('bombas', 600, 418, 230, 92)}
-    ${[[612,672,'A',pA],[762,822,'B',pB]].map(([mx,cx,l,on])=>`
-      <rect x="${mx}" y="430" width="44" height="26" rx="4" fill="${on?'#3B4A60':'#2A3442'}" stroke="${on?'#5E728C':'#465670'}"/>
-      <circle cx="${cx}" cy="443" r="16" fill="#1E2734" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="3"/>
-      <g class="${on?'tw-fan':''}" style="transform-origin:${cx}px 443px"><path d="M${cx} 443 l9 -5 M${cx} 443 l-9 -5 M${cx} 443 v10" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2.5" stroke-linecap="round"/></g>
-      <text x="${mx+22}" y="478" fill="${on?'#33D69F':'#8A9BB3'}" font-family="JetBrains Mono, monospace" font-size="11" text-anchor="middle" font-weight="700">${l} · ${on?'MARCHA':'STOP'}</text>`).join('')}
-    <text x="716" y="500" fill="#8A9BB3" font-size="11" text-anchor="middle">${C.pumpTag}</text>
-  </g>
-
-  <!-- ===== REFLUJO ===== -->
-  <path d="M688 443 H700 V540 H520 V180 H425" fill="none" stroke="#38D9A9" stroke-width="3" marker-end="url(#twArrG)" opacity="${reflux>1?1:.3}"/>
-  <path d="M688 443 H700 V540 H520 V180 H425" fill="none" stroke="#B8FFE6" stroke-width="1.2" stroke-dasharray="5 9" class="${flow(reflux>1)}"/>
-  <g class="tw-eq" data-tw-eq="reflujo">
-    ${selBox('reflujo', 498, 258, 150, 70)}
-    <path d="M508 300 L532 288 L532 312 Z M532 300 L508 288 L508 312 Z" fill="${reflux>1?'#33D69F':'#FF6B6B'}" stroke="#0A0F18"/>
-    <path d="M520 300 V278" stroke="#8FA3BD" stroke-width="2"/>
-    <path d="M506 278 Q520 262 534 278 Z" fill="#8FA3BD"/>
-    <rect x="540" y="284" width="104" height="34" rx="4" fill="#0F1A2B" stroke="#24364F"/>
-    <text x="548" y="298" fill="#8A9BB3" font-family="JetBrains Mono, monospace" font-size="10">REFLUJO${C.split?' '+(100-state.refluxSplit[C.split])+'%':''}</text>
-    <text x="548" y="312" fill="#38D9A9" font-family="JetBrains Mono, monospace" font-size="12" font-weight="700">${f1(reflux)} GPM</text>
-  </g>
-
-  ${C.prodKey ? `
-  <path d="M830 300 H930" fill="none" stroke="#38D9A9" stroke-width="3" marker-end="url(#twArrG)" opacity="${prod>0.5?1:.3}"/>
-  <path d="M830 300 H930" fill="none" stroke="#B8FFE6" stroke-width="1.2" stroke-dasharray="5 9" class="${flow(prod>0.5)}"/>
-  <text x="880" y="288" fill="#DCE6F2" font-size="12" text-anchor="middle" font-weight="600">${C.prodLabel}</text>
-  <text x="880" y="322" fill="#38D9A9" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace">${f1(prod)} GPM</text>` : `
-  <text x="880" y="296" fill="#8A9BB3" font-size="11" text-anchor="middle">Reflujo total</text>
-  <text x="880" y="312" fill="#8A9BB3" font-size="11" text-anchor="middle">a la columna</text>`}
-
-  <!-- ===== REBOILER ===== -->
-  <g class="tw-eq" data-tw-eq="reboiler">
-    ${selBox('reboiler', 62, 532, 252, 136)}
-    <path d="M335 560 H300 V590" fill="none" stroke="${hot?'#FFB300':'#4E6380'}" stroke-width="3"/>
-    <ellipse cx="140" cy="590" rx="12" ry="26" fill="#55677F"/>
-    <rect x="140" y="564" width="160" height="52" fill="url(#twMetalH)"/>
-    <ellipse cx="300" cy="590" rx="12" ry="26" fill="#8FA3BD"/>
-    <path d="M160 590 H280" stroke="${hot?'url(#twHot)':'#4E6380'}" stroke-width="6" stroke-linecap="round"/>
-    <path d="M160 600 H280" stroke="${hot?'url(#twHot)':'#4E6380'}" stroke-width="6" stroke-linecap="round" opacity=".6"/>
-    <path d="M80 575 H140" stroke="${hot?'#FFB300':'#4E6380'}" stroke-width="3"/>
-    <path d="M80 605 H140" stroke="${hot?'#FF7043':'#4E6380'}" stroke-width="3"/>
-    <text x="140" y="548" fill="#DCE6F2" font-size="12" font-weight="600">${C.rebTag} Reboiler</text>
-    <g font-family="JetBrains Mono, monospace" font-size="11">
-      <text x="76" y="571" fill="#FFB300" text-anchor="end">HO</text>
-      <rect x="140" y="626" width="170" height="34" rx="4" fill="#0F1A2B" stroke="#24364F"/>
-      <text x="148" y="640" fill="#8A9BB3">${C.ticTag} · SP ${f0(reb.sp)}</text>
-      <text x="148" y="654" fill="${cBot}" font-weight="700">PV ${f0(reb.pv)} °F</text>
-    </g>
-  </g>
-
-  <!-- fondos -->
-  ${C.botPump ? `
-  <path d="M380 598 V640 H430" fill="none" stroke="#38D9A9" stroke-width="3" opacity="${bot>0.5?1:.3}"/>
-  <g class="tw-eq" data-tw-eq="bombafondo">
-    ${selBox('bombafondo', 424, 618, 76, 56)}
-    <circle cx="448" cy="640" r="13" fill="#1E2734" stroke="${botPumpOn?'#33D69F':'#5E6E85'}" stroke-width="3"/>
-    <g class="${botPumpOn?'tw-fan':''}" style="transform-origin:448px 640px"><path d="M448 640 l7 -4 M448 640 l-7 -4 M448 640 v8" stroke="${botPumpOn?'#33D69F':'#5E6E85'}" stroke-width="2.5" stroke-linecap="round"/></g>
-    <text x="448" y="668" fill="${botPumpOn?'#33D69F':'#8A9BB3'}" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="middle" font-weight="700">${C.botPumpTag}</text>
-  </g>
-  <path d="M461 640 H520" fill="none" stroke="#38D9A9" stroke-width="3" marker-end="url(#twArrG)" opacity="${bot>0.5?1:.3}"/>
-  <text x="526" y="644" fill="#8A9BB3" font-size="11">${C.botLabel} · ${f1(bot)} GPM</text>` : `
-  <path d="M380 598 V640 H470" fill="none" stroke="#38D9A9" stroke-width="3" marker-end="url(#twArrG)" opacity="${run?1:.3}"/>
-  <text x="476" y="644" fill="#8A9BB3" font-size="11">${C.botLabel}${C.botFlowKey?' · '+f1(bot)+' GPM':''}</text>`}
-</svg>`;
-  }
-  // devuelve el área del panel clásico donde está definida una variable (para tomar sus zonas de color)
-  function AREA_COL_AREA(key){
-    const a = AREAS.find(x=>x.gauges && x.gauges.some(g=>g.key===key));
-    return a ? a.id : null;
-  }
-
-  /* ---------------- PANEL LATERAL ---------------- */
-  function eqList(C){
-    const L = {
-      columna:    {title:`${C.colTag} · ${C.title}`},
-      condensador:{title:`${C.cond.tag} · ${C.cond.label}`},
-      acumulador: {title:`${C.accTag} · Acumulador de reflujo`},
-      bombas:     {title:`${C.pumpTag} · Bombas de reflujo`},
-      reflujo:    {title: C.prodKey ? `Reflujo / ${C.prodLabel}` : 'Reflujo a columna'},
-      reboiler:   {title:`${C.rebTag} · Reboiler`}
-    };
-    if(C.botPump) L.bombafondo = {title:`${C.botPumpTag} · Bomba de fondo`};
-    return L;
-  }
-
+  /* ===================== PANEL LATERAL ===================== */
   function kpi(label, val, unit, color){
     return `<div class="tw-kpi"><div class="l">${label}</div><div class="v" style="color:${color||'#7FD4FF'}">${val}<span> ${unit}</span></div></div>`;
   }
+  function eqList(){
+    const C = colOf();
+    if(C.kind==='col') return {
+      columna:{title:`${C.colTag} · ${C.title}`}, alimentacion:{title:`Alimentación desde ${C.feedFrom}`}, venteo:{title:'PIC venteo · Colector de Baja'},
+      condensador:{title:`${C.aeroTag} · Condensador de tope`}, acumulador:{title:`${C.accTag} · Acumulador`}, bombas:{title:`${C.pumpTag} · Bombas`},
+      reflujo:{title:`${C.ficTag} · Reflujo`}, producto:{title:C.prodLabel.replace('A ','Envío ')}, reboiler:{title:`${C.rebTag} · Reboiler`}, fondo:{title:`Fondo · ${C.botLabel}`} };
+    if(C.kind==='deet') return { columna:{title:'D81.0302 · Deetanizador'}, alimentacion:{title:'Alimentaciones (D21.0304 · D21.0303 · D31.0302)'}, reboiler:{title:'D21.0307 · Reboiler'}, fondo:{title:'LIC-0302B · Fondo a Depropanizador'} };
+    if(C.kind==='refdeet') return { condensador:{title:'D21.0306 · Condensador'}, acumulador:{title:'D82.0302 · Acumulador'}, gas:{title:'PIC-0302 · Gas a D21.0305'}, bombas:{title:'P-0306 A/B · Bombas'}, reflujo:{title:'FIC-0306 · Reflujo'}, nivel:{title:'LIC-0302 · Nivel'} };
+    return { propano:{title:'Propano · PIC0504B'}, butano:{title:'Butano · PIC0510B'}, gasolina:{title:'Gasolina · LIC0505'}, aerogas:{title:'D27.0503A/B · Aero gasolina'} };
+  }
+  const pumpTxt = k => state.pumps[k].on ? 'MARCHA' : 'STOP';
+  const pumpCol = k => state.pumps[k].on ? '#33D69F' : '#8A9BB3';
+  function aeroVals(k){ const ae = state.aeros[k]; return kpi('Salida', f0(ae.pv), '°F') + kpi('Motores', ae.fans.filter(Boolean).length+'/4', '') + kpi('Modo', ae.mode, '', '#DCE6F2') + kpi('SP', f0(ae.sp), '°F', '#FFB300'); }
+  function aeroCtls(k){ const ae = state.aeros[k];
+    return `<div class="tw-ctl-title">Motores</div><div class="tw-grid4">${ae.fans.map((on,i)=>`<button type="button" class="tw-btn ${on?'on':''}" data-tw-act="fan" data-ae="${k}" data-i="${i}">M${i+1}<br><small>${on?'ON':'OFF'}</small></button>`).join('')}</div>
+      <button type="button" class="tw-btn" data-tw-act="aeromode" data-ae="${k}">Pasar a ${ae.mode==='AUTO'?'MANUAL':'AUTO'}</button>`; }
+  const pumpBtn = (k,l,on,off) => `<button type="button" class="tw-btn ${state.pumps[k].on?'on':''}" data-tw-act="pump" data-k="${k}">${l}<br><small>${state.pumps[k].on?(on||'MARCHA'):(off||'STOP')}</small></button>`;
+  const rebCtls = (rk, tic) => { const reb = state.reboilers[rk]; return `<div class="tw-ctl-title">Setpoint ${tic}</div>
+      <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="reb" data-rk="${rk}" data-d="-5">−5</button><div class="tw-stepv">${f0(reb.sp)} °F</div><button type="button" class="tw-btn" data-tw-act="reb" data-rk="${rk}" data-d="5">+5</button></div>
+      <button type="button" class="tw-btn" data-tw-act="rebnom" data-rk="${rk}">Llevar a normal (${reb.normal} °F)</button>`; };
 
   function valsHtml(){
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
-    const reb = state.reboilers[C.reb];
-    const zc = (k,v,n) => zoneColor(AREA_COL_AREA(k)||C.area, k, v, n);
-    const pumpTxt = k => state.pumps[k].on ? 'MARCHA' : 'STOP';
-    const pumpCol = k => state.pumps[k].on ? '#33D69F' : '#8A9BB3';
-    if(s==='columna'){
-      let h = kpi('Presión tope', f0(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey)))
-        + kpi('Temp. tope', f0(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey)))
-        + kpi('Temp. fondo', f0(V(C.botKey)), '°F', zc(C.botKey,V(C.botKey),'#FFB300'))
-        + kpi('Nivel fondo', f0(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9'));
-      if(C.purityKey) h += kpi(C.purityLabel, f1(V(C.purityKey)), '%', zc(C.purityKey,V(C.purityKey),'#33D69F'));
-      if(C.midKeys) h += kpi('Sección media', f0(V(C.midKeys[0])), '°F', zc(C.midKeys[0],V(C.midKeys[0])));
-      if(C.botFlowKey) h += kpi('Fondos', f1(V(C.botFlowKey)), 'GPM');
-      return h;
+    if(C.kind==='col'){
+      const reb = state.reboilers[C.reb];
+      if(s==='columna') return kpi('Presión', f1(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey))) + kpi('Tope', f1(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey))) + kpi('Nivel fondo', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi(C.reb==='depro'?'Pureza C3':'Pureza C4', f1(V(C.reb==='depro'?'purityC3':'purityC4')), '%', zc(C.reb==='depro'?'purityC3':'purityC4', V(C.reb==='depro'?'purityC3':'purityC4'), '#33D69F'));
+      if(s==='alimentacion') return kpi('Temp. alimentación', f1(C.feedTemp()), '°F') + kpi('Origen', C.feedFrom, '', '#DCE6F2');
+      if(s==='venteo'){ const p = V(C.psigKey); return kpi('SP venteo', f0(C.ventSP), 'psig', '#FFB300') + kpi('Presión', f1(p), 'psig', zc(C.psigKey,p)) + kpi('Válvula', p>C.ventSP?'ABRIENDO':'CERRADA', '', p>C.ventSP?'#FFCC66':'#33D69F'); }
+      if(s==='condensador') return aeroVals(C.aero);
+      if(s==='acumulador') return kpi('Nivel', f1(V(C.accKey)), '%', zc(C.accKey,V(C.accKey),'#38D9A9')) + kpi('Reflujo', f1(V(C.refluxKey)), 'USGPM', '#38D9A9');
+      if(s==='bombas') return kpi('Bomba A', pumpTxt(C.pumps[0][0]), '', pumpCol(C.pumps[0][0])) + kpi('Bomba B', pumpTxt(C.pumps[1][0]), '', pumpCol(C.pumps[1][0]));
+      if(s==='reflujo') return kpi('SP '+C.ficTag, f2(C.ficNom*(100-state.refluxSplit[C.split])/52), 'USGPM', '#FFB300') + kpi('PV', f2(V(C.refluxKey)), 'USGPM', '#38D9A9') + kpi('Retorno', f1(state.aeros[C.aero].pv*C.retRatio), '°F');
+      if(s==='producto') return kpi('Envío', f2(V(C.prodKey)), 'USGPM', '#38D9A9') + kpi('Reparto', state.refluxSplit[C.split]+'%', 'a producto', '#DCE6F2');
+      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc(C.botKey,reb.pv,'#FFB300')) + kpi('SP', f0(reb.sp), '°F', '#FFB300') + kpi('Normal', f0(reb.normal), '°F', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+      if(s==='fondo') return kpi('Nivel', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi('Salida', f1(run()?C.botTemp(reb.pv):60), '°F', '#FFB300') + kpi('Caudal', f2(V(C.botFlowKey)), 'USGPM', '#38D9A9') + (C.botPump?kpi('P-0503', pumpTxt(C.botPump), '', pumpCol(C.botPump)):'');
     }
-    if(s==='condensador'){
-      if(C.cond.type==='aero'){
-        const ae = state.aeros[C.cond.key];
-        return kpi('Salida', f0(ae.pv), '°F') + kpi('Ventiladores', ae.fans.filter(Boolean).length+'/4', '') + kpi('Modo', ae.mode, '', '#DCE6F2') + kpi('SP', f0(ae.sp), '°F', '#FFB300');
-      }
-      return kpi('Salida a acumulador', f0(V(C.cond.outKey)), '°F', zc(C.cond.outKey,V(C.cond.outKey),'#9AD8FF'))
-        + (C.cond.inKey ? kpi('Lado frío', f0(V(C.cond.inKey)), '°F', '#9AD8FF') : '')
-        + kpi('Vapor de tope', f0(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey)));
+    if(C.kind==='deet'){
+      const reb = state.reboilers.deet;
+      if(s==='columna') return kpi('Presión', f1(V('psigDeet')), 'psig', zc('psigDeet',V('psigDeet'))) + kpi('Tope', f1(V('topTempDeet')), '°F', zc('topTempDeet',V('topTempDeet'))) + kpi('Media', f1(V('deetTrayMidTemp')), '°F') + kpi('ΔP', f2(V('deetDP')), 'PSID');
+      if(s==='alimentacion') return kpi('Reflujo D31.0302', f1(V('deetRefluxGPM')), 'GPM', '#38D9A9') + kpi('Carga planta', f0((state.loadSmooth||0)*100), '%');
+      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc('bottomTempDeet',reb.pv,'#FFB300')) + kpi('SP', f0(reb.sp), '°F', '#FFB300') + kpi('Normal', f0(reb.normal), '°F', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+      if(s==='fondo') return kpi('Nivel', f1(V('lvlD810302')), '%', zc('lvlD810302',V('lvlD810302'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD810302.sp), '%', '#FFB300');
     }
-    if(s==='acumulador'){
-      let h = kpi('Nivel', f0(V(C.accKey)), '%', zc(C.accKey,V(C.accKey),'#38D9A9')) + kpi('Reflujo', f1(V(C.refluxKey)), 'GPM', '#38D9A9');
-      if(C.prodKey) h += kpi(C.prodLabel, f1(V(C.prodKey)), 'GPM', '#38D9A9');
-      return h;
+    if(C.kind==='refdeet'){
+      if(s==='condensador') return kpi('Salida', f1(V('d210306OutTemp')), '°F', zc('d210306OutTemp',V('d210306OutTemp'),'#9AD8FF')) + kpi('Frío D21.0301B', f1(V('cond306InTemp')), '°F', '#9AD8FF') + kpi('Vapor de tope', f1(V('topTempDeet')), '°F');
+      if(s==='acumulador' || s==='nivel') return kpi('Nivel', f1(V('lvlD820302')), '%', zc('lvlD820302',V('lvlD820302'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820302.sp), '%', '#FFB300') + kpi('Presión', f1(V('deetRefluxPSIG')), 'psig');
+      if(s==='gas') return kpi('SP', '285', 'psig', '#FFB300') + kpi('PV', f1(V('deetRefluxPSIG')), 'psig', zc('psigDeet',V('deetRefluxPSIG')));
+      if(s==='bombas') return kpi('P-0306A', pumpTxt('deet'), '', pumpCol('deet')) + kpi('P-0306B', pumpTxt('deetB'), '', pumpCol('deetB'));
+      if(s==='reflujo') return kpi('SP', '33.00', 'GPM', '#FFB300') + kpi('PV', f2(V('deetRefluxGPM')), 'GPM', '#38D9A9');
     }
-    if(s==='bombas') return kpi('Bomba A', pumpTxt(C.pumps[0][0]), '', pumpCol(C.pumps[0][0])) + kpi('Bomba B', pumpTxt(C.pumps[1][0]), '', pumpCol(C.pumps[1][0])) + kpi('Caudal total', f1(V(C.refluxKey)+(C.prodKey?V(C.prodKey):0)), 'GPM');
-    if(s==='bombafondo') return kpi(C.botPumpTag, pumpTxt(C.botPump), '', pumpCol(C.botPump)) + kpi('Caudal', f1(V(C.botFlowKey)), 'GPM') + kpi('Nivel fondo', f0(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9'));
-    if(s==='reflujo'){
-      let h = kpi('Reflujo', f1(V(C.refluxKey)), 'GPM', '#38D9A9');
-      if(C.prodKey) h += kpi('A '+C.prodLabel.toLowerCase(), f1(V(C.prodKey)), 'GPM', '#38D9A9');
-      if(C.split) h += kpi('Reparto', (100-state.refluxSplit[C.split])+'/'+state.refluxSplit[C.split], '%', '#DCE6F2');
-      if(C.purityKey) h += kpi(C.purityLabel, f1(V(C.purityKey)), '%', zc(C.purityKey,V(C.purityKey),'#33D69F'));
-      return h;
+    if(C.kind==='storage'){
+      if(s==='aerogas') return aeroVals('gasolina');
+      const L = laneOf(s) || LANES[0];
+      return kpi('Envío', f2(V(L.flowKey)), L.unit, zoneColor('medicion_almacen',L.flowKey,V(L.flowKey),'#38D9A9')) + kpi('SP', f2(L.sp), L.unit, '#FFB300') + kpi('Temperatura', f1(V(L.tempKey)), '°F') + kpi('Tanque (sim.)', f0(V(L.tankKey)), '%', zoneColor('medicion_almacen',L.tankKey,V(L.tankKey),'#38D9A9'));
     }
-    if(s==='reboiler') return kpi('PV', f0(reb.pv), '°F', zc(C.botKey,reb.pv,'#FFB300')) + kpi('SP', f0(reb.sp), '°F', '#FFB300') + kpi('Normal', f0(reb.normal), '°F', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
     return '';
   }
 
   function controlsHtml(){
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
-    const reb = state.reboilers[C.reb];
-    const pumpBtn = (k,l) => `<button type="button" class="tw-btn ${state.pumps[k].on?'on':''}" data-tw-act="pump" data-k="${k}">${l}<br><small>${state.pumps[k].on?'MARCHA':'STOP'}</small></button>`;
-    if(s==='condensador' && C.cond.type==='aero'){
-      const ae = state.aeros[C.cond.key];
-      return `<div class="tw-ctl-title">Ventiladores</div>
-      <div class="tw-grid4">${ae.fans.map((on,i)=>`<button type="button" class="tw-btn ${on?'on':''}" data-tw-act="fan" data-i="${i}">M${i+1}<br><small>${on?'ON':'OFF'}</small></button>`).join('')}</div>
-      <button type="button" class="tw-btn" data-tw-act="aeromode">Pasar a ${ae.mode==='AUTO'?'MANUAL':'AUTO'}</button>`;
+    const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
+    if(C.kind==='col'){
+      if(s==='columna') return trend;
+      if(s==='condensador') return aeroCtls(C.aero);
+      if(s==='acumulador') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="${C.accKey}">Abrir faceplate LIC</button>`;
+      if(s==='bombas') return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2">${pumpBtn(C.pumps[0][0],'Bomba A')}${pumpBtn(C.pumps[1][0],'Bomba B')}</div>`;
+      if(s==='reflujo' || s==='producto') return `<div class="tw-ctl-title">${C.ficTag}: reflujo / ${C.prodLabel.replace('A ','').toLowerCase()}</div>
+        <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="split" data-sk="${C.split}" data-lbl="${C.prodLabel.replace('A ','')}" data-d="1">− reflujo</button><div class="tw-stepv">SP ${f1(C.ficNom*(100-state.refluxSplit[C.split])/52)}</div><button type="button" class="tw-btn" data-tw-act="split" data-sk="${C.split}" data-lbl="${C.prodLabel.replace('A ','')}" data-d="-1">+ reflujo</button></div>
+        <div class="tw-note">Más reflujo: tope más frío y producto más puro, pero menos envío.</div>`;
+      if(s==='reboiler') return rebCtls(C.reb, C.ticTag);
+      if(s==='fondo') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="${C.colVessel}">Faceplate LIC columna</button>` + (C.botPump ? `<div class="tw-ctl-title">Envío de fondo (no figura en la pantalla DCS)</div><div class="tw-grid2">${pumpBtn(C.botPump,'P-0503')}</div>` : '');
+      if(s==='venteo') return `<div class="tw-note">Se abre sola si la presión de la columna pasa el SP de venteo (${C.ventSP} psig) y alivia al Colector de Baja. Si se abre, revisá el condensador.</div>`;
+      if(s==='alimentacion') return `<div class="tw-note">Viene del fondo de ${C.feedFrom}. Su temperatura depende del reboiler de esa columna.</div>`;
     }
-    if(s==='condensador') return `<div class="tw-note">El ${C.cond.tag} enfría con gas frío de proceso: depende de que la criogenia (expansor e intercambiadores) esté funcionando bien. Si sube la salida, se pierde reflujo y sube el tope.</div>`;
-    if(s==='bombas') return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2">${pumpBtn(C.pumps[0][0],'Bomba A')}${pumpBtn(C.pumps[1][0],'Bomba B')}</div>`;
-    if(s==='bombafondo') return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2">${pumpBtn(C.botPump,C.botPumpTag)}</div>`;
-    if(s==='reboiler') return `<div class="tw-ctl-title">Setpoint ${C.ticTag}</div>
-      <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="reb" data-d="-5">−5</button><div class="tw-stepv">${f0(reb.sp)} °F</div><button type="button" class="tw-btn" data-tw-act="reb" data-d="5">+5</button></div>
-      <button type="button" class="tw-btn" data-tw-act="rebnom">Llevar a normal (${reb.normal} °F)</button>`;
-    if(s==='reflujo' && C.split) return `<div class="tw-ctl-title">Reparto reflujo / ${C.prodLabel.toLowerCase()}</div>
-      <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="split" data-d="1">− reflujo</button><div class="tw-stepv">${100-state.refluxSplit[C.split]}% reflujo</div><button type="button" class="tw-btn" data-tw-act="split" data-d="-1">+ reflujo</button></div>
-      <div class="tw-note">Más reflujo: tope más frío y producto más puro, pero menos producción.</div>`;
-    if(s==='reflujo') return `<div class="tw-note">Todo lo que condensa vuelve a la columna como reflujo. Sin bombas en marcha no hay reflujo y el tope se calienta.</div>`;
-    if(s==='acumulador') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="${C.accKey}">Abrir faceplate LIC</button>`;
-    if(s==='columna') return `<div class="tw-ctl-title">Temperatura de tope · últimos 3 min</div><div id="tw-trend"></div>
-      <button type="button" class="tw-btn" data-tw-act="vessel" data-k="${C.colKey}">Faceplate nivel de fondo</button>`;
+    if(C.kind==='deet'){
+      if(s==='columna') return trend;
+      if(s==='reboiler') return rebCtls('deet','TIC-0307');
+      if(s==='fondo') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD810302">Faceplate LIC-0302B</button>`;
+      if(s==='alimentacion') return `<div class="tw-note">Las alimentaciones vienen de los intercambiadores D21.0304 y D21.0303 (criogenia). El reflujo entra por arriba desde las bombas D31.0302.</div>`;
+    }
+    if(C.kind==='refdeet'){
+      if(s==='condensador') return trend + `<div class="tw-note">Enfría con gas frío de D21.0301B y D21.0305: depende de que la criogenia esté funcionando.</div>`;
+      if(s==='acumulador' || s==='nivel') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820302">Faceplate LIC-0302</button>`;
+      if(s==='bombas' || s==='reflujo') return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2">${pumpBtn('deet','P-0306A')}${pumpBtn('deetB','P-0306B')}</div>`;
+      if(s==='gas') return `<div class="tw-note">El gas no condensado sale por presión hacia D21.0305 (válvula NC).</div>`;
+    }
+    if(C.kind==='storage'){
+      if(s==='aerogas') return aeroCtls('gasolina');
+      const L = laneOf(s) || LANES[0];
+      let h = `<div class="tw-ctl-title">Bomba de despacho</div><div class="tw-grid2">${pumpBtn(L.pump, state.pumps[L.pump].tag, 'DESPACHANDO', 'DETENIDA')}</div>`;
+      if(L.split) h += `<div class="tw-ctl-title">Reparto en la columna</div>
+        <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="split" data-sk="${L.split}" data-lbl="${L.label}" data-d="-1">− envío</button><div class="tw-stepv">${state.refluxSplit[L.split]}%</div><button type="button" class="tw-btn" data-tw-act="split" data-sk="${L.split}" data-lbl="${L.label}" data-d="1">+ envío</button></div>
+        <div class="tw-note">Más envío sube el caudal pero baja el reflujo: sale menos puro.</div>`;
+      return h + `<div class="tw-note">Los dos números grises de la línea son los de la pantalla DCS (fijos en el simulador).</div>`;
+    }
     return '';
   }
 
@@ -7467,26 +7666,21 @@ setInterval(tickChrom, 1500);
     const h = twin.hist[AREA_COL[twin.area]] || []; if(h.length<2) return '<div class="tw-note">Juntando datos…</div>';
     const min = Math.min(...h)-2, max = Math.max(...h)+2, W=300, H=70;
     const pts = h.map((v,i)=>`${(i/(h.length-1)*W).toFixed(1)},${(H-(v-min)/(max-min)*H).toFixed(1)}`).join(' ');
-    return `<svg viewBox="0 0 ${W} ${H}" class="tw-trend" role="img" aria-label="Tendencia de temperatura de tope"><polyline points="${pts}" fill="none" stroke="#4FC3F7" stroke-width="2"/></svg>
-      <div class="tw-trendlbl"><span>${f0(min+2)} °F</span><span>${f0(max-2)} °F</span></div>`;
+    return `<svg viewBox="0 0 ${W} ${H}" class="tw-trend" role="img" aria-label="Tendencia"><polyline points="${pts}" fill="none" stroke="#4FC3F7" stroke-width="2"/></svg>
+      <div class="tw-trendlbl"><span>${f1(min+2)}</span><span>${f1(max-2)}</span></div>`;
   }
 
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
-    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (Fraccionamiento: Deetanizador, Depropanizador o Debutanizador).</div>`; return; }
-    const EQ = eqList(colOf()); const eq = EQ[twin.sel] || EQ.columna;
-    el.innerHTML = `
-      <div class="tw-cap">EQUIPO SELECCIONADO</div>
-      <div class="tw-eqtitle">${eq.title}</div>
+    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (zona Fraccionamiento).</div>`; return; }
+    const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
+    el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
       <div class="tw-ctls" id="tw-ctls">${controlsHtml()}</div>
       <div class="tw-cap" style="margin-top:6px">CONJUNTO</div>
-      <div class="tw-list">
-        ${Object.keys(EQ).map(k=>`<button type="button" class="tw-li ${k===twin.sel?'on':''}" data-tw-eq="${k}">${EQ[k].title}</button>`).join('')}
-      </div>`;
+      <div class="tw-list">${Object.keys(EQ).map(k=>`<button type="button" class="tw-li ${k===twin.sel?'on':''}" data-tw-eq="${k}">${EQ[k].title}</button>`).join('')}</div>`;
     const tr = $('tw-trend'); if(tr) tr.innerHTML = trendSvg();
   }
-
   function renderFoot(){
     const el = $('tw-foot'); if(!el) return;
     const al = (typeof log!=='undefined' ? log : []).filter(l=>l.kind==='alarm').slice(0,3);
@@ -7494,32 +7688,29 @@ setInterval(tickChrom, 1500);
       + `<span class="tw-meta">${state.esdActive?'<b style="color:#FF6B6B">ESD ACTIVO</b> · ':''}Carga ${f0((state.loadSmooth||0)*100)}% · ${f1(state.ambientTemp)} °C</span>`;
   }
 
-  /* ---------------- ACCIONES ---------------- */
+  /* ===================== ACCIONES ===================== */
   function act(btn){
     const a = btn.dataset.twAct;
-    const C = colOf();
     if(state.esdActive && a!=='vessel'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
     if(a==='fan'){
-      const ae = state.aeros[C.cond.key], i = +btn.dataset.i;
+      const ae = state.aeros[btn.dataset.ae], i = +btn.dataset.i;
       ae.fans[i] = !ae.fans[i]; ae.mode = 'MANUAL';
-      addLog(`Ventilador M${i+1} de ${ae.tag} ${ae.fans[i]?'ARRANCADO':'DETENIDO'}.`, ae.fans[i]?'ok':'info');
+      addLog(`Motor M${i+1} de ${ae.tag} ${ae.fans[i]?'ARRANCADO':'DETENIDO'}.`, ae.fans[i]?'ok':'info');
     } else if(a==='aeromode'){
-      const ae = state.aeros[C.cond.key]; ae.mode = ae.mode==='AUTO'?'MANUAL':'AUTO';
+      const ae = state.aeros[btn.dataset.ae]; ae.mode = ae.mode==='AUTO'?'MANUAL':'AUTO';
       addLog(`Control de ${ae.tag} cambiado a ${ae.mode}.`,'ok');
     } else if(a==='pump'){
       const p = state.pumps[btn.dataset.k]; p.on = !p.on;
-      if(p.on && p.tank && state.vals[p.tank] !== undefined && state.vals[p.tank] < 3){
-        addLog(`⚠ Advertencia: bomba ${p.tag} (${p.name}) arrancada con nivel <3% — riesgo de cavitación.`, 'alarm');
-      } else {
-        addLog(`Bomba ${p.tag} (${p.name}) ${p.on?'ARRANCADA (EN MARCHA)':'DETENIDA'}`, p.on?'ok':'info');
-      }
+      if(p.on && p.tank && state.vals[p.tank] !== undefined && state.vals[p.tank] < 3) addLog(`⚠ Advertencia: bomba ${p.tag} (${p.name}) arrancada con nivel <3% — riesgo de cavitación.`, 'alarm');
+      else addLog(`Bomba ${p.tag} (${p.name}) ${p.on?'ARRANCADA (EN MARCHA)':'DETENIDA'}`, p.on?'ok':'info');
     } else if(a==='reb' || a==='rebnom'){
-      const r = state.reboilers[C.reb];
+      const r = state.reboilers[btn.dataset.rk];
       r.sp = a==='rebnom' ? r.normal : Math.max(r.min, Math.min(r.max, r.sp + (+btn.dataset.d)));
       addLog(`Setpoint reboiler ${r.tag} (${r.name}) ajustado a ${r.sp.toFixed(0)} °F`, 'info');
     } else if(a==='split'){
-      state.refluxSplit[C.split] = Math.max(20, Math.min(80, state.refluxSplit[C.split] + (+btn.dataset.d)*5));
-      addLog(`Reparto ${C.pumpTag} ajustado a ${state.refluxSplit[C.split]}% hacia ${C.prodLabel} / ${100-state.refluxSplit[C.split]}% reflujo`, 'info');
+      const sk = btn.dataset.sk;
+      state.refluxSplit[sk] = Math.max(20, Math.min(80, state.refluxSplit[sk] + (+btn.dataset.d)*5));
+      addLog(`Reparto ${sk==='depro'?'P-0501A/B':'P-0502A/B'} ajustado a ${state.refluxSplit[sk]}% hacia ${btn.dataset.lbl} / ${100-state.refluxSplit[sk]}% reflujo`, 'info');
     } else if(a==='vessel'){
       if(typeof openVesselFaceplate==='function') openVesselFaceplate(btn.dataset.k);
       return;
@@ -7536,24 +7727,24 @@ setInterval(tickChrom, 1500);
   document.addEventListener('click', e=>{
     const root = $('twin-root'); if(!root || !root.contains(e.target)) return;
     const z = e.target.closest('[data-tw-zone]');
-    if(z){ twin.zone = z.dataset.twZone; const first = AREAS.find(a=>a.sec===twin.zone && READY[a.id]) || AREAS.find(a=>a.sec===twin.zone); if(first){ twin.area = first.id; twin.sel = 'columna'; } renderShell(); return; }
+    if(z){ twin.zone = z.dataset.twZone; const first = AREAS.find(a=>a.sec===twin.zone && READY[a.id]) || AREAS.find(a=>a.sec===twin.zone); if(first){ twin.area = first.id; twin.sel = defSel(); } renderShell(); return; }
     const ar = e.target.closest('[data-tw-area]');
-    if(ar){ const prev = AREA_COL[twin.area]; twin.area = ar.dataset.twArea; if(AREA_COL[twin.area]!==prev || twin.area==='reflujo_deet') twin.sel = (twin.area==='reflujo_deet'?'acumulador':'columna'); renderAreas(); renderScene(); renderSide(); return; }
+    if(ar){ twin.area = ar.dataset.twArea; twin.sel = defSel(); renderAreas(); renderScene(); renderSide(); return; }
     const cl = e.target.closest('[data-tw-classic]');
     if(cl){ jumpToArea(cl.dataset.twClassic); return; }
     const b = e.target.closest('[data-tw-act]');
     if(b) act(b);
   });
 
-  /* ---------------- CICLO ---------------- */
+  /* ===================== CICLO ===================== */
   setInterval(()=>{
-    Object.keys(COLS).forEach(k=>{ const h = twin.hist[k] || (twin.hist[k]=[]); h.push(V(COLS[k].topKey)); if(h.length>180) h.shift(); });
+    Object.keys(COLS).forEach(k=>{ const h = twin.hist[k] || (twin.hist[k]=[]); h.push(V(COLS[k].topKeyHist)); if(h.length>180) h.shift(); });
     const view = $('view-twin');
     if(!view || !view.classList.contains('active')) return;
     if(!$('tw-svg')) renderShell();
     renderScene();
     const vals = $('tw-vals'); if(vals) vals.innerHTML = valsHtml();
-    const ctl = $('tw-ctls'); if(ctl && !ctl.matches(':hover')) ctl.innerHTML = controlsHtml();
+    const ctlEl = $('tw-ctls'); if(ctlEl && !ctlEl.matches(':hover')) ctlEl.innerHTML = controlsHtml();
     const tr = $('tw-trend'); if(tr) tr.innerHTML = trendSvg();
     renderFoot();
   }, 1000);
