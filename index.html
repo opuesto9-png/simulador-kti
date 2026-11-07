@@ -1929,6 +1929,23 @@ function addLog(msg, kind){
   log.unshift({time, msg, kind});
   if(log.length>60) log.pop();
   renderLog();
+  if(kind==='alarm' && /^(Interlock|ESD activo|⛔)/i.test(String(msg).trim())) showInterlockToast(msg);
+}
+/* Aviso flotante cuando un interlock bloquea una maniobra (antes solo iba al registro de abajo) */
+function showInterlockToast(msg){
+  let t = document.getElementById('ilk-toast');
+  if(!t){
+    t = document.createElement('div'); t.id = 'ilk-toast';
+    t.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:99998;max-width:min(680px,92vw);'+
+      'background:#3A1218;color:#FFD9DC;border:1px solid #FF4B4B;border-left:6px solid #FF4B4B;border-radius:8px;'+
+      'padding:12px 16px;font:600 14px Inter,system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.55);cursor:pointer;transition:opacity .3s';
+    t.title = 'Clic para cerrar';
+    t.addEventListener('click', ()=>{ t.style.opacity = '0'; setTimeout(()=>t.style.display='none',300); });
+    document.body.appendChild(t);
+  }
+  t.innerHTML = '🔒 <b>MANIOBRA BLOQUEADA</b><br><span style="font-weight:500">' + msg + '</span>';
+  t.style.display = 'block'; t.style.opacity = '1';
+  clearTimeout(t._h); t._h = setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.style.display='none',300); }, 6000);
 }
 function renderLog(){
   const el = document.getElementById('log-list');
