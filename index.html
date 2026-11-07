@@ -7166,11 +7166,11 @@ setInterval(tickChrom, 1500);
       <path d="M${x} ${y} L${x+50} ${y+36} L${x+50} ${y+64} L${x} ${y+28} Z" fill="#141C29" stroke="#4E6380"/>
       ${fan(x+80, y+11, ae.fans[0])}${fan(x+180, y+11, ae.fans[1])}${fan(x+105, y+26, ae.fans[2])}${fan(x+205, y+26, ae.fans[3])}
       <g stroke="#3C4E68" stroke-width="2"><path d="M${x+60} ${y+64} L${x+44} ${y+130}"/><path d="M${x+280} ${y+64} L${x+296} ${y+130}"/></g>
-      <g font-family="Inter, sans-serif" font-size="12">
+      ${tag===null ? '' : `<g font-family="Inter, sans-serif" font-size="12">
         <text x="${x+300}" y="${y+10}" fill="#DCE6F2" font-weight="600">${tag}</text>
         ${sub?`<text x="${x+300}" y="${y+26}" fill="#8A9BB3">${sub}</text>`:''}
         <text x="${x+300}" y="${y+42}" fill="${on?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11">${on}/4 motores · ${ae.mode}</text>
-      </g>`;
+      </g>`}`;
   }
   function hDrum(x, y, w, h, lvl, tag, lvlColor){
     const r = h/2, inner = h-16, lh = inner*lvl/100;
@@ -7517,6 +7517,377 @@ setInterval(tickChrom, 1500);
       ${LANES.map(lane).join('')}${aeroSvg}</svg>`;
   }
 
+  /* ===================== CRIOGENIA ===================== */
+  COLS.hx     = { kind:'hx',     areas:['intercambiadores'], title:'Intercambiadores de Gas', sub:'D21.0301A/B · D21.0303 · D21.0304 · D21.0308 · según pantalla DCS', topKeyHist:'hx303Temp', defSel:'hx301a' };
+  COLS.exp    = { kind:'exp',    areas:['expansor'],         title:'Expansor', sub:'D82.0301 · Turboexpansor / Booster · según pantalla DCS', topKeyHist:'tempExpansorOut', defSel:'expansor' };
+  COLS.rc     = { kind:'rc',     areas:['recompresores'],    title:'Recompresores', sub:'Rc4 · Rc7 · Rc8 · Rc9 (XA0307) · según pantalla DCS', topKeyHist:'rcDischPSIG', defSel:'rc4' };
+  COLS.recont = { kind:'recont', areas:['recontactor'],      title:'Recontactor', sub:'D81.0301 · D21.0305 · P-0301 A/B · según pantalla DCS', topKeyHist:'psigRecontactor', defSel:'columna' };
+  ['hx','exp','rc','recont'].forEach(k=>COLS[k].areas.forEach(a=>{ AREA_COL[a]=k; READY[a]=true; }));
+
+  // eficiencia criogénica actual (1 = como la captura)
+  const cryoK = () => { const v = V('hx301InTemp'); return run() && v < 0 ? v / -119.84 : 0; };
+  const cold = v => run() ? v * cryoK() : 65;          // temperaturas frías, siguen al proceso
+  const warm = v => run() ? v : 65;                    // temperaturas del lado caliente
+
+  function hxH(x, y, w, tag, on, isCold, label){
+    const c = isCold ? '#9AD8FF' : '#FFCC66';
+    return `<ellipse cx="${x}" cy="${y+22}" rx="10" ry="22" fill="#55677F"/>
+      <rect x="${x}" y="${y}" width="${w}" height="44" fill="url(#twMetalH)"/>
+      <ellipse cx="${x+w}" cy="${y+22}" rx="10" ry="22" fill="#8FA3BD"/>
+      <rect x="${x+14}" y="${y+7}" width="${w-28}" height="30" fill="#0B1220" stroke="${c}" stroke-dasharray="4 3"/>
+      <g stroke="${on?c:'#3C4E68'}" stroke-width="2"><path d="M${x+18} ${y+13} H${x+w-18}"/><path d="M${x+18} ${y+20} H${x+w-18}"/><path d="M${x+18} ${y+27} H${x+w-18}"/><path d="M${x+18} ${y+34} H${x+w-18}"/></g>
+      <text x="${x+w/2}" y="${y-6}" fill="#DCE6F2" font-size="12" font-weight="700" text-anchor="middle">${tag}</text>
+      ${label?`<text x="${x+w/2}" y="${y+60}" fill="#8A9BB3" font-size="10" text-anchor="middle">${label}</text>`:''}`;
+  }
+  const off = (y, txt) => `<g><path d="M880 ${y-10} H984 L992 ${y} L984 ${y+10} H880 Z" fill="#0D1422" stroke="#3C4E68"/><text x="886" y="${y+4}" fill="#DCE6F2" font-size="11" font-weight="600">${txt}</text></g>`;
+
+  /* ---------- INTERCAMBIADORES ---------- */
+  function sceneHx(){
+    const r = run(), dp = V('coldBoxDP'), ho = V('hx308Temp');
+    const cDP = zc('coldBoxDP', dp);
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Intercambiadores de gas">${DEFS}
+      <!-- entradas -->
+      ${line('M20 120 H590 V138', '#FFCC66', false, null, 3)}
+      <text x="24" y="112" fill="#DCE6F2" font-size="12" font-weight="600">De Tanques</text>
+      ${valve(360, 120, 0, 'NC')}
+      ${ctl(390, 70, 'M', '300', '-0', 'kg/h', '#7FD4FF', '')}
+      ${line('M20 180 H560 V236', '#FFCC66', r, null, 4)}
+      ${line('M190 180 V200', '#FFCC66', r, null, 4)}
+      <text x="24" y="172" fill="#DCE6F2" font-size="12" font-weight="600">Torres (gas seco)</text>
+      ${rd(160, 150, f2(warm(90.74)), '°F', '#FFCC66', 92)} ${rd(270, 150, f2(r?12.86*(state.loadSmooth||0)/0.9:0), 'MMSCFD', '#7FD4FF', 116)}
+      <!-- salida a Booster -->
+      ${line('M250 200 V52 H975', '#FFCC66', r, null, 3)}
+      ${rd(262, 30, f2(warm(80.02)), '°F', '#FFCC66', 92)}
+      ${off(52,'Booster')}
+
+      <g class="tw-eq" data-tw-eq="hx301a">
+        ${selBox('hx301a', 12, 186, 300, 80)}
+        ${hxH(120, 204, 170, 'D21.0301A', r, true)}
+        ${rd(20, 208, f2(V('hx301InTemp')), '°F', '#9AD8FF', 92)}
+        ${rd(20, 240, f2(warm(147.06)), '°F', '#FFCC66', 92)}
+      </g>
+      ${line('M170 248 V300', '#9AD8FF', r, null, 3)}${line('M250 300 V248', '#9AD8FF', r, null, 3)}
+      <g class="tw-eq" data-tw-eq="hx301b">
+        ${selBox('hx301b', 12, 284, 300, 130)}
+        ${hxH(120, 300, 170, 'D21.0301B', r, true)}
+        ${rd(110, 378, f2(V('hx301Temp')*(29.11/67.07)), '°F', '#9AD8FF', 92)}
+        ${rd(208, 378, f2(V('hx301Temp')), '°F', zc('hx301Temp',V('hx301Temp'),'#9AD8FF'), 92)}
+      </g>
+      ${line('M150 344 V470 H975', '#9AD8FF', r, null, 3)}${off(470,'D82.0301')}
+      ${line('M270 344 V430 H975', '#9AD8FF', r, null, 3)}${off(430,'D21.0306')}
+
+      <g class="tw-eq" data-tw-eq="hx303">
+        ${selBox('hx303', 330, 200, 420, 84)}
+        ${hxH(470, 236, 170, 'D21.0303', r, true)}
+        ${rd(350, 214, f2(cold(-64.96)), '°F', '#9AD8FF', 100)} ${rd(350, 244, f2(warm(140.53)), '°F', '#FFCC66', 100)}
+        ${rd(660, 214, f2(dp), 'PSID', cDP, 86)}
+      </g>
+      ${rd(350, 276, f2(cold(25.81)), '°F', '#9AD8FF', 100)}
+      ${line('M640 258 H975', '#9AD8FF', r, null, 3)}${off(258,'D82.0301')} ${rd(780, 232, f2(V('hx303Temp')), '°F', zc('hx303Temp',V('hx303Temp'),'#9AD8FF'), 92)}
+      ${line('M540 280 V326', '#9AD8FF', r, null, 3)}
+      <g class="tw-eq" data-tw-eq="hx304">
+        ${selBox('hx304', 330, 306, 420, 116)}
+        ${hxH(470, 326, 170, 'D21.0304', r, true)}
+        ${rd(350, 312, f2(cold(-60.52)), '°F', '#9AD8FF', 100)} ${rd(350, 342, f2(warm(118.91)), '°F', '#FFCC66', 100)}
+        ${rd(660, 304, f2(r?-0.32:0), 'PSID', '#7FD4FF', 86)}
+        ${rd(520, 392, f2(V('hx304Temp')), '°F', zc('hx304Temp',V('hx304Temp'),'#9AD8FF'), 92)}
+      </g>
+      ${line('M640 348 H975', '#38D9A9', r, null, 3)}${off(348,'Deetanizador')} ${rd(780, 322, f2(cold(10.72)), '°F', '#9AD8FF', 92)}
+      ${line('M600 370 V400 H975', '#9AD8FF', r, null, 3)}${off(400,'D21.0305')}
+      ${line('M330 330 V560 H975', '#9AD8FF', r, null, 3)}${off(560,'D31.0301A/B')} ${rd(340, 528, f2(cold(-108.19)), '°F', '#9AD8FF', 100)}
+
+      <g class="tw-eq" data-tw-eq="hx308">
+        ${selBox('hx308', 600, 64, 392, 150)}
+        ${hxH(640, 120, 150, 'D21.0308', ho>65, false, 'Hot Oil')}
+        ${line('M975 92 H760 V120', '#FFB300', ho>65, null, 3)}${off(92,'Hot Oil')}
+        ${valve(800, 92, ho>65?0.7:0, 'NC')}
+        ${line('M760 164 V176 H975', '#FF7043', ho>65, null, 3)}${off(176,'Hot Oil')}
+        ${ctl(820, 132, 'M', '70.00', f2(ho), '°F', '#FFCC66', 'TIC-0308')}
+        ${line('M700 164 V206 H975', '#38D9A9', r, null, 3)}${off(206,'Deetanizador')}
+        ${valve(840, 206, r?0.6:0, '')}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- EXPANSOR ---------- */
+  function sceneExp(){
+    const r = run(), ae = state.aeros.booster;
+    const lvl = Math.max(0,Math.min(100,V('lvlD820301'))), vs = state.vessels.lvlD820301;
+    const pIn = V('psigExpansor'), tIn = V('expInTemp'), rpm = V('expRpm'), pB = V('boosterPSIG'), tOut = V('tempExpansorOut');
+    const jt = state.recircOpen, spin = rpm > 3000;
+    const cL = zc('lvlD820301', lvl, '#38D9A9'), cP = zc('psigExpansor', pIn), cR = zc('expRpm', rpm), cB = zc('boosterPSIG', pB), cT = zc('tempExpansorOut', tOut, '#9AD8FF');
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Turboexpansor y booster">${DEFS}${FLOOR}
+      <!-- entrada a D82.0301 -->
+      ${line('M20 90 H400', '#9AD8FF', r, 'twArrS', 4)}
+      <text x="24" y="82" fill="#DCE6F2" font-size="12" font-weight="600">D21.0304/1B</text>
+      <g class="tw-eq" data-tw-eq="d820301">
+        ${selBox('d820301', 180, 40, 290, 230)}
+        ${vDrum(400, 70, 70, 150, lvl, 'D82.0301', cL)}
+        ${ctl(200, 110, 'A', f1(vs.sp), f1(lvl), '%', cL, 'LIC-0301')}
+        ${line('M435 225 V242 H360 V166 H20', '#38D9A9', r && lvl>vs.sp, 'twArrG', 3)}
+        ${valve(330, 166, (r && lvl>vs.sp)?0.6:0, 'NC')}
+        <text x="24" y="158" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0303</text>
+      </g>
+      <!-- gas a expansor con PIC y JT -->
+      ${line('M470 80 H680 V520', '#9AD8FF', r, null, 4)}
+      ${rd(500, 56, f2(tIn), '°F', zc('expInTemp',tIn,'#9AD8FF'), 92)}
+      <g class="tw-eq" data-tw-eq="jt">
+        ${selBox('jt', 690, 76, 300, 250)}
+        ${ctl(720, 90, 'A', '824', f0(pIn), 'psig', cP, 'PIC-0301')}
+        ${ctl(720, 160, 'A', '840', f0(pIn), 'psig', cP, 'PIC')}
+        ${line('M680 240 H800 V560', '#9AD8FF', jt>0 && r, null, 3)}
+        ${valve(800, 260, jt/100, 'NC', true)}
+        ${rd(880, 290, f0(jt)+' %', 'PV-0301', jt>0?'#FFCC66':'#33D69F', 104)}
+      </g>
+      ${valve(680, 330, spin?1:0, '', true)}
+      <!-- eje booster / expansor -->
+      <g class="tw-eq" data-tw-eq="expansor">
+        ${selBox('expansor', 330, 380, 420, 220)}
+        <rect x="520" y="500" width="130" height="16" fill="#8FA3BD"/>
+        <path d="M640 470 Q700 470 720 508 Q700 546 640 546 Z" fill="url(#twMetalH)" stroke="#5E728C"/>
+        <path d="M530 470 Q470 470 450 508 Q470 546 530 546 Z" fill="url(#twMetalH)" stroke="#5E728C"/>
+        <circle cx="685" cy="508" r="16" fill="#0B1220" stroke="#9AD8FF"/>
+        <g class="${spin?'tw-fan':''}" style="transform-origin:685px 508px"><path d="M685 508 l11 -4 M685 508 l-11 -4 M685 508 v12" stroke="#9AD8FF" stroke-width="2.5" stroke-linecap="round"/></g>
+        <circle cx="485" cy="508" r="16" fill="#0B1220" stroke="#FFCC66"/>
+        <g class="${spin?'tw-fan':''}" style="transform-origin:485px 508px"><path d="M485 508 l11 -4 M485 508 l-11 -4 M485 508 v12" stroke="#FFCC66" stroke-width="2.5" stroke-linecap="round"/></g>
+        <text x="685" y="572" fill="#9AD8FF" font-size="11" text-anchor="middle" font-weight="600">EXPANSOR</text>
+        <text x="485" y="572" fill="#FFCC66" font-size="11" text-anchor="middle" font-weight="600">BOOSTER</text>
+        ${ctl(540, 400, 'A', f0(state.expRpmSP), f0(rpm), 'RPM', cR, 'SIC-0301')}
+      </g>
+      <!-- descarga expansor a Recontactor -->
+      ${line('M720 520 H975', '#9AD8FF', r, 'twArrS', 4)}
+      ${line('M800 560 V520', '#9AD8FF', jt>0 && r, null, 3)}
+      <text x="985" y="508" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">Recontactor</text>
+      ${rd(880, 540, f0(V('psigRecontactor')), 'psig', '#7FD4FF', 104)} ${rd(880, 568, f2(tOut), '°F', cT, 104)}
+      <!-- booster: succión, aero y recirculación -->
+      <g class="tw-eq" data-tw-eq="booster">
+        ${selBox('booster', 12, 300, 316, 380)}
+        ${line('M20 620 H200 V508 H450', '#FFCC66', r, null, 4)}
+        <text x="24" y="612" fill="#DCE6F2" font-size="12" font-weight="600">D31.0301A</text>
+        ${rd(200, 630, f2(warm(80.02)), '°F', '#FFCC66', 92)}
+        ${line('M485 470 V290 H300', '#FFCC66', r, null, 4)}
+        ${line('M60 350 H20', '#FFCC66', r, 'twArrG', 4)}
+        <text x="24" y="342" fill="#DCE6F2" font-size="12" font-weight="600">Recomp.</text>
+        ${line('M240 320 H260 V508', '#FFCC66', r, null, 2)}
+        ${valve(260, 420, r?0.6:0, 'NO', true)}
+        ${ctl(140, 440, 'A', '60.000', r?'59.745':'0.000', '%', '#7FD4FF', 'Recirculación')}
+        ${line('M120 508 V560 H20', '#4FC3F7', pB>300, 'twArrB', 3)}
+        ${valve(90, 560, pB>300?0.6:0, 'NC')}
+        <text x="24" y="584" fill="#8A9BB3" font-size="11">Venteo</text>
+        ${ctl(150, 540, 'A', '300', f0(pB), 'psig', cB, 'PIC booster')}
+      </g>
+      <g class="tw-eq" data-tw-eq="aero">
+        ${selBox('aero', 20, 186, 330, 116)}
+        ${ctl(500, 300, 'A', f2(ae.sp), f2(ae.pv), '°F', '#FFCC66', 'TIC-0102')}
+        ${aero2x2(40, 206, ae, null, '')}
+        <text x="60" y="292" fill="#DCE6F2" font-size="12" font-weight="600">TI-0102 <tspan fill="${ae.fans.some(Boolean)?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11" font-weight="400">${ae.fans.filter(Boolean).length}/4 motores · ${ae.mode}</tspan></text>
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- RECOMPRESORES ---------- */
+  const RCL = [['rc4','Rc4',233,323,34],['rc7','Rc7',237,327,1],['rc8','Rc8',237,327,0],['rc9','Rc9 · XA0307',241,331,0]];
+  function sceneRc(){
+    const ae = state.aeros.recomp, succ = V('rcSuccPSIG'), disch = V('rcDischPSIG'), tD = V('rcDischTemp'), rpmPV = V('rpmRecomp');
+    const anyOn = RC_KEYS.some(k=>state.recompressors[k]);
+    const lineRc = ([k, name, tBase, sBase, rOff], i) => {
+      const on = state.recompressors[k], y = 110 + i*110;
+      const t = on ? tD + (tBase-237) : NaN, pd = on ? disch : (k==='rc7'?42:1), rp = on ? rpmPV + rOff : 0, ps = on ? succ + (sBase-327) : (k==='rc7'?41:1);
+      return `<g class="tw-eq" data-tw-eq="${k}">
+        ${selBox(k, 300, y-44, 690, 96)}
+        ${line(`M960 ${y} H330`, on?'#FFCC66':'#4E6380', on, null, 4)}
+        ${rd(330, y-36, isNaN(t)?'NaN':f0(t), '°F', isNaN(t)?'#FF6B6B':'#FFCC66', 84)}
+        ${valve(450, y, on?1:0, '')}
+        ${rd(490, y-36, f0(pd), 'psig', on?'#7FD4FF':'#8A9BB3', 90)}
+        ${rd(600, y-36, f0(rp), 'RPM', on?'#33D69F':'#8A9BB3', 90)}
+        <path d="M720 ${y-22} L780 ${y-12} L780 ${y+12} L720 ${y+22} Z" fill="${on?'url(#twMetalH)':'#2A3442'}" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2"/>
+        <circle cx="750" cy="${y}" r="9" fill="#0B1220" stroke="${on?'#33D69F':'#5E6E85'}"/>
+        <g class="${on?'tw-fan':''}" style="transform-origin:750px ${y}px"><path d="M750 ${y} l7 -3 M750 ${y} l-7 -3 M750 ${y} v8" stroke="${on?'#33D69F':'#5E6E85'}" stroke-width="2" stroke-linecap="round"/></g>
+        ${!on && k!=='rc9' ? `<path d="M792 ${y+4} l8 -14 l8 14 z" fill="#FFCC66" stroke="#0A0F18"/>` : ''}
+        <text x="750" y="${y+38}" fill="${on?'#33D69F':'#8A9BB3'}" font-size="11" text-anchor="middle" font-weight="700">${name} · ${on?'MARCHA':'STOP'}</text>
+        ${rd(820, y-36, f0(ps), 'psig', on?'#7FD4FF':'#8A9BB3', 90)}
+        ${valve(930, y, on?1:0, '')}
+      </g>`;
+    };
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Recompresores">${DEFS}
+      <!-- colectores -->
+      ${line('M330 110 V500', '#FFCC66', anyOn, null, 5)}
+      ${line('M960 110 V640', '#9AD8FF', anyOn, null, 5)}
+      ${line('M960 640 H975', '#9AD8FF', anyOn, null, 4)} ${off(640,'Booster')}
+      ${rd(190, 64, f0(V('salesPSIG')||disch), 'psig', '#7FD4FF', 92)}
+      ${line('M330 230 H300', '#FFCC66', anyOn, null, 4)}
+      ${RCL.map(lineRc).join('')}
+      <!-- aero y salida -->
+      <g class="tw-eq" data-tw-eq="aero">
+        ${selBox('aero', 12, 140, 300, 230)}
+        ${aero2x2(20, 250, ae, null, '')}
+        <text x="24" y="356" fill="${ae.fans.some(Boolean)?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11">${ae.fans.filter(Boolean).length}/4 motores · ${ae.mode}</text>
+        ${ctl(170, 156, 'A', f2(ae.sp), f2(ae.pv), '°F', '#FFCC66', 'TIC-0102')}
+        ${line('M300 230 H20', '#FFCC66', anyOn, 'twArrG', 4)}
+        <text x="24" y="222" fill="#DCE6F2" font-size="12" font-weight="600">Salida Planta</text>
+        <text x="24" y="390" fill="#8A9BB3" font-size="11">Gas Regen</text>
+      </g>
+      <!-- by-pass / control de succión -->
+      <g class="tw-eq" data-tw-eq="succion">
+        ${selBox('succion', 300, 500, 690, 180)}
+        ${line('M960 600 H330 V500', '#9AD8FF', anyOn && succ>262, null, 3)}
+        ${valve(620, 600, anyOn && succ>262 ? 0.5 : 0.2, 'NO')}
+        ${ctl(460, 520, 'A', '261', f0(succ), 'psig', zc('rcSuccPSIG',succ), 'PIC succión')}
+        ${ctl(860, 520, 'A', '262', f0(succ), 'psig', zc('rcSuccPSIG',succ), 'PI0306')}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- RECONTACTOR ---------- */
+  function sceneRecont(){
+    const r = run(), p = V('psigRecontactor'), lvl = Math.max(0,Math.min(100,V('lvlD810301'))), vs = state.vessels.lvlD810301;
+    const gpm = V('recontPumpGPM'), pA = state.pumps.recontA.on, pBn = state.pumps.recontB.on, pOn = pA||pBn;
+    const rpmPV = V('rpmRecomp');
+    const rpms = RCL.map(([k,,,,o])=> state.recompressors[k] ? rpmPV + o : 0);
+    const cP = zc('psigRecontactor',p), cL = zc('lvlD810301',lvl,'#38D9A9');
+    return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Recontactor">${DEFS}${FLOOR}
+      <!-- RPM de recompresores -->
+      <g class="tw-eq" data-tw-eq="rpm">
+        ${selBox('rpm', 12, 50, 340, 196)}
+        ${RCL.map(([k,name],i)=>`<text x="24" y="${82+i*44}" fill="#DCE6F2" font-size="12" font-weight="600">Recomp. ${name}</text>${rd(220, 66+i*44, f2(rpms[i]), 'RPM', rpms[i]>0?'#33D69F':'#8A9BB3', 112)}`).join('')}
+      </g>
+      <!-- PIC -->
+      <g class="tw-eq" data-tw-eq="pic">
+        ${selBox('pic', 420, 110, 160, 90)}
+        ${ctl(440, 136, 'A', f0(state.recontactorSP), f0(p), 'psig', cP, 'PIC-0305')}
+      </g>
+      <!-- entrada desde expansor -->
+      ${line('M20 300 H600', '#9AD8FF', r, 'twArrS', 4)}
+      <text x="24" y="292" fill="#DCE6F2" font-size="12" font-weight="600">Expansor</text>
+      ${rd(450, 270, f2(V('recontFeedTemp')), '°F', '#9AD8FF', 100)}
+      <!-- columna -->
+      <g class="tw-eq" data-tw-eq="columna">
+        ${selBox('columna', 590, 210, 150, 400)}
+        ${vDrum(605, 250, 120, 300, lvl, 'D81.0301', cL)}
+        ${rd(450, 232, f2(V('recontTopTemp')), '°F', '#9AD8FF', 100)}
+        ${rd(450, 520, f2(V('recontBotTemp')), '°F', '#9AD8FF', 100)}
+      </g>
+      <!-- gas de tope a D21.0301 -->
+      ${line('M665 215 V60 H975', '#9AD8FF', r, 'twArrS', 4)}${off(52,'D21.0301')}
+      <!-- D21.0305 -->
+      <g class="tw-eq" data-tw-eq="hx305">
+        ${selBox('hx305', 740, 100, 250, 200)}
+        ${hxH(770, 170, 170, 'D21.0305', r, true)}
+        ${line('M975 110 H860 V170', '#9AD8FF', r, null, 3)}${off(102,'D82.0302')}
+        ${line('M975 150 H950 V192', '#9AD8FF', r, null, 3)}${off(142,'D21.0306')}
+        ${rd(840, 120, f2(cold(-105.30)), '°F', '#9AD8FF', 92)}
+        ${line('M855 214 V250 H725', '#9AD8FF', r, null, 3)}
+        ${line('M690 215 V190 H770', '#9AD8FF', r, null, 2)}
+        ${rd(860, 240, f2(V('d210305Temp')), '°F', zc('d210305Temp',V('d210305Temp'),'#9AD8FF'), 100)}
+      </g>
+      <!-- bombas, FIC y LIC -->
+      ${line('M665 560 V600 H470 M560 600 V640 H470', '#38D9A9', pOn)}
+      <g class="tw-eq" data-tw-eq="bombas">
+        ${selBox('bombas', 380, 570, 160, 110)}
+        ${pump(470, 600, pA, 'A')}${pump(470, 650, pBn, 'B')}
+      </g>
+      <g class="tw-eq" data-tw-eq="fondo">
+        ${selBox('fondo', 12, 350, 370, 330)}
+        ${line('M394 600 H90 V640 H20', '#38D9A9', gpm>1, 'twArrG', 3)}
+        ${valve(90, 620, gpm>1?0.7:0, 'NC', true)}
+        <text x="24" y="664" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0304</text>
+        ${ctl(220, 520, 'A', '60.00', f2(gpm), 'GPM', '#38D9A9', 'FIC-0301')}
+        ${line('M90 600 V460', '#38D9A9', false, null, 2)}
+        ${valve(90, 470, 0, 'NO', true)}
+        ${ctl(40, 380, 'A', f1(vs.sp), f1(lvl), '%', cL, 'LIC-0301')}
+      </g>
+    </svg>`;
+  }
+
+  /* ---------- PANEL: valores y controles ---------- */
+  function cryoEq(C){
+    if(C.kind==='hx') return { hx301a:{title:'D21.0301A · Gas/Gas'}, hx301b:{title:'D21.0301B · Gas/Gas'}, hx303:{title:'D21.0303 · Caja fría'}, hx304:{title:'D21.0304'}, hx308:{title:'D21.0308 · Hot Oil'} };
+    if(C.kind==='exp') return { expansor:{title:'Turboexpansor / Booster · SIC-0301'}, jt:{title:'PIC-0301 · PV-0301 (JT)'}, d820301:{title:'D82.0301 · Tambor de succión'}, booster:{title:'Booster · succión y recirculación'}, aero:{title:'TI-0102 · Aero booster'} };
+    if(C.kind==='rc') return { rc4:{title:'Rc4 · Recompresor 1'}, rc7:{title:'Rc7 · Recompresor 2'}, rc8:{title:'Rc8 · Recompresor 3'}, rc9:{title:'Rc9 · XA0307'}, aero:{title:'TIC-0102 · Aero succión'}, succion:{title:'Control de succión · PI0306'} };
+    return { columna:{title:'D81.0301 · Recontactor'}, pic:{title:'PIC-0305 · Presión'}, hx305:{title:'D21.0305 · Condensador'}, bombas:{title:'P-0301 A/B · Bombas'}, fondo:{title:'FIC-0301 / LIC-0301 · Fondo'}, rpm:{title:'Velocidad recompresores'} };
+  }
+  function cryoVals(C, s){
+    if(C.kind==='hx'){
+      if(s==='hx301a') return kpi('Gas residual entra', f1(V('hx301InTemp')), '°F', '#9AD8FF') + kpi('Gas seco entra', f1(warm(90.74)), '°F', '#FFCC66');
+      if(s==='hx301b') return kpi('Salida fría', f1(V('hx301Temp')), '°F', zc('hx301Temp',V('hx301Temp'),'#9AD8FF')) + kpi('Eficiencia frío', f0(cryoK()*100), '%');
+      if(s==='hx303') return kpi('Salida a D82.0301', f1(V('hx303Temp')), '°F', zc('hx303Temp',V('hx303Temp'),'#9AD8FF')) + kpi('ΔP', f2(V('coldBoxDP')), 'PSID', zc('coldBoxDP',V('coldBoxDP'))) + kpi('Agua en gas', f2(state.h2oPpm||0), 'ppm');
+      if(s==='hx304') return kpi('Salida', f1(V('hx304Temp')), '°F', zc('hx304Temp',V('hx304Temp'),'#9AD8FF')) + kpi('A Deetanizador', f1(cold(10.72)), '°F');
+      if(s==='hx308') return kpi('TIC-0308 PV', f1(V('hx308Temp')), '°F', '#FFCC66') + kpi('SP (manual)', '70.0', '°F', '#FFB300') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+    }
+    if(C.kind==='exp'){
+      if(s==='expansor') return kpi('RPM PV', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('RPM SP', f0(state.expRpmSP), 'rpm', '#FFB300') + kpi('Descarga', f1(V('tempExpansorOut')), '°F', zc('tempExpansorOut',V('tempExpansorOut'),'#9AD8FF')) + kpi('Entrada', f0(V('psigExpansor')), 'psig');
+      if(s==='jt') return kpi('PV-0301', f0(state.recircOpen), '% abierta', state.recircOpen>0?'#FFCC66':'#33D69F') + kpi('Presión entrada', f0(V('psigExpansor')), 'psig', zc('psigExpansor',V('psigExpansor')));
+      if(s==='d820301') return kpi('Nivel', f1(V('lvlD820301')), '%', zc('lvlD820301',V('lvlD820301'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820301.sp), '%', '#FFB300') + kpi('Temp. tope', f1(V('expInTemp')), '°F', '#9AD8FF');
+      if(s==='booster') return kpi('Succión booster', f0(V('boosterPSIG')), 'psig', zc('boosterPSIG',V('boosterPSIG'))) + kpi('SP venteo', '300', 'psig', '#FFB300');
+      if(s==='aero') return aeroVals('booster');
+    }
+    if(C.kind==='rc'){
+      if(s==='aero') return aeroVals('recomp');
+      if(s==='succion') return kpi('Succión', f0(V('rcSuccPSIG')), 'psig', zc('rcSuccPSIG',V('rcSuccPSIG'))) + kpi('Descarga', f0(V('rcDischPSIG')), 'psig');
+      const on = state.recompressors[s];
+      return kpi('Estado', on?'MARCHA':'STOP', '', on?'#33D69F':'#8A9BB3') + kpi('RPM PV', f0(on?V('rpmRecomp'):0), 'rpm') + kpi('RPM SP', f0(state.rcRpmSP), 'rpm', '#FFB300') + kpi('Descarga', on?f0(V('rcDischTemp')):'—', '°F', '#FFCC66');
+    }
+    if(C.kind==='recont'){
+      if(s==='columna' || s==='pic') return kpi('Presión', f0(V('psigRecontactor')), 'psig', zc('psigRecontactor',V('psigRecontactor'))) + kpi('SP', f0(state.recontactorSP), 'psig', '#FFB300') + kpi('Nivel', f1(V('lvlD810301')), '%', zc('lvlD810301',V('lvlD810301'),'#38D9A9')) + kpi('Tope', f1(V('recontTopTemp')), '°F', '#9AD8FF');
+      if(s==='hx305') return kpi('Retorno', f1(V('d210305Temp')), '°F', zc('d210305Temp',V('d210305Temp'),'#9AD8FF'));
+      if(s==='bombas' || s==='fondo') return kpi('P-0301A', pumpTxt('recontA'), '', pumpCol('recontA')) + kpi('P-0301B', pumpTxt('recontB'), '', pumpCol('recontB')) + kpi('FIC-0301', f2(V('recontPumpGPM')), 'GPM', '#38D9A9') + kpi('Nivel', f1(V('lvlD810301')), '%', zc('lvlD810301',V('lvlD810301'),'#38D9A9'));
+      if(s==='rpm') return kpi('RPM PV', f0(V('rpmRecomp')), 'rpm') + kpi('Unidades', RC_KEYS.filter(k=>state.recompressors[k]).length+'/4', '');
+    }
+    return '';
+  }
+  const step = (act, val, unit, dn, up, extra) => `<div class="tw-step"><button type="button" class="tw-btn" data-tw-act="${act}" data-d="-1">${dn}</button><div class="tw-stepv">${val}${unit?' '+unit:''}</div><button type="button" class="tw-btn" data-tw-act="${act}" data-d="1">${up}</button></div>${extra||''}`;
+  function cryoCtls(C, s){
+    const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
+    if(C.kind==='hx'){
+      if(s==='hx303') return trend + `<div class="tw-note">Si sube el ΔP de la caja fría, puede haber formación de hidratos por agua en el gas: revisá las torres deshidratadoras.</div>`;
+      if(s==='hx308') return `<div class="tw-note">TIC-0308 está en MANUAL en la pantalla real. Calienta con hot oil la corriente que va al Deetanizador.</div>`;
+      return trend + `<div class="tw-note">El frío lo aporta el gas residual que vuelve del Recontactor. Si el expansor trabaja mal, todo el tren se calienta.</div>`;
+    }
+    if(C.kind==='exp'){
+      if(s==='expansor') return `<div class="tw-ctl-title">Setpoint velocidad SIC-0301</div>` + step('exprpm', f0(state.expRpmSP), 'rpm', '−1000', '+1000') + trend;
+      if(s==='jt') return `<div class="tw-ctl-title">PV-0301 · válvula JT</div>` + step('jt', f0(state.recircOpen), '%', '−10', '+10', `<div class="tw-note">0% = todo el gas por el expansor (máximo frío). La JT es el respaldo: si el turbo baja de 3000 RPM, abre sola.</div>`);
+      if(s==='d820301') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820301">Faceplate LIC-0301</button><button type="button" class="tw-btn" data-tw-act="slug">Simular bache (+15%)</button>`;
+      if(s==='aero') return aeroCtls('booster');
+      if(s==='booster') return `<div class="tw-note">La succión del booster sigue al SP del Recontactor. Si pasa 300 psig, abre el venteo.</div>`;
+    }
+    if(C.kind==='rc'){
+      if(s==='aero') return aeroCtls('recomp');
+      if(s==='succion') return `<div class="tw-ctl-title">Velocidad recompresores (SP común)</div>` + step('rcrpm', f0(state.rcRpmSP), 'rpm', '−20', '+20') + trend;
+      const on = state.recompressors[s];
+      return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2"><button type="button" class="tw-btn ${on?'on':''}" data-tw-act="rc" data-k="${s}">${s.toUpperCase()}<br><small>${on?'MARCHA':'STOP'}</small></button></div>
+        <div class="tw-grid2"><button type="button" class="tw-btn" data-tw-act="rcall">Arrancar las 4</button><button type="button" class="tw-btn" data-tw-act="rcstop">Detener todos</button></div>
+        <div class="tw-ctl-title">Velocidad (SP común)</div>` + step('rcrpm', f0(state.rcRpmSP), 'rpm', '−20', '+20');
+    }
+    if(C.kind==='recont'){
+      if(s==='columna' || s==='pic') return `<div class="tw-ctl-title">Setpoint PIC-0305</div>` + step('reconsp', f0(state.recontactorSP), 'psig', '−5', '+5', `<div class="tw-note">La presión del Recontactor fija la succión del booster y de los recompresores.</div>`) + (s==='columna'?trend:'');
+      if(s==='bombas') return `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2">${pumpBtn('recontA','P-0301A')}${pumpBtn('recontB','P-0301B')}</div>`;
+      if(s==='fondo') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD810301">Faceplate LIC-0301</button><div class="tw-grid2">${pumpBtn('recontA','P-0301A')}${pumpBtn('recontB','P-0301B')}</div>`;
+      if(s==='hx305') return `<div class="tw-note">Condensa el tope del Recontactor con frío del D82.0302 y del D21.0306.</div>`;
+      if(s==='rpm') return `<div class="tw-note">Son las velocidades de los 4 recompresores; se operan desde la pantalla Recompresores.</div>`;
+    }
+    return '';
+  }
+  function cryoAct(a, btn){
+    const d = +btn.dataset.d;
+    if(a==='exprpm'){ state.expRpmSP = Math.max(20000, Math.min(45000, state.expRpmSP + d*1000)); addLog(`Setpoint velocidad expansor a ${state.expRpmSP} rpm`, 'info'); return true; }
+    if(a==='jt'){ state.recircOpen = Math.max(0, Math.min(100, state.recircOpen + d*10)); addLog(`Válvula PV-0301 ajustada a ${state.recircOpen}%`, 'info'); return true; }
+    if(a==='slug'){ state.vessels.lvlD820301.pv = Math.min(95, state.vessels.lvlD820301.pv + 15); addLog('Ingreso de bache simulado en D82.0301.', 'info'); return true; }
+    if(a==='rcrpm'){ state.rcRpmSP = Math.max(600, Math.min(1050, state.rcRpmSP + d*20)); addLog(`Setpoint velocidad recompresores ajustado a ${state.rcRpmSP} rpm`, 'info'); return true; }
+    if(a==='reconsp'){ state.recontactorSP = Math.max(230, Math.min(300, state.recontactorSP + d*5)); addLog(`Setpoint presión Recontactor D81.0301 ajustado a ${state.recontactorSP} psig`, 'info'); return true; }
+    if(a==='rc'){
+      const k = btn.dataset.k;
+      if(!MC_KEYS.some(m=>state.compressors[m]) && !state.recompressors[k]){ addLog(`Interlock: no se puede arrancar ${k.toUpperCase()} sin compresores XA0101.`,'alarm'); return true; }
+      state.recompressors[k] = !state.recompressors[k];
+      addLog(`Recompresor ${k.toUpperCase()} ${state.recompressors[k]?'ARRANCADO':'DETENIDO'}`, state.recompressors[k]?'ok':'info'); return true;
+    }
+    if(a==='rcall'){
+      if(!MC_KEYS.some(m=>state.compressors[m])){ addLog('Interlock: arranca primero el tren XA0101.','alarm'); return true; }
+      RC_KEYS.forEach(k=>state.recompressors[k]=true); addLog('Las 4 líneas de Recompresión puestas en MARCHA.','ok'); return true;
+    }
+    if(a==='rcstop'){ RC_KEYS.forEach(k=>state.recompressors[k]=false); addLog('Recompresores detenidos.','info'); return true; }
+    return false;
+  }
+
   /* ===================== MARCO ===================== */
   function renderShell(){
     const root = $('twin-root'); if(!root) return;
@@ -7555,15 +7926,17 @@ setInterval(tickChrom, 1500);
     }
     const C = colOf();
     $('tw-title').textContent = C.title; $('tw-subtitle').textContent = C.sub;
-    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : sceneStorage();
+    box.innerHTML = C.kind==='col' ? sceneCol(C) : C.kind==='deet' ? sceneDeet() : C.kind==='refdeet' ? sceneRefDeet() : C.kind==='storage' ? sceneStorage() : C.kind==='hx' ? sceneHx() : C.kind==='exp' ? sceneExp() : C.kind==='rc' ? sceneRc() : sceneRecont();
   }
 
   /* ===================== PANEL LATERAL ===================== */
   function kpi(label, val, unit, color){
     return `<div class="tw-kpi"><div class="l">${label}</div><div class="v" style="color:${color||'#7FD4FF'}">${val}<span> ${unit}</span></div></div>`;
   }
+  const CRYO = ['hx','exp','rc','recont'];
   function eqList(){
     const C = colOf();
+    if(CRYO.includes(C.kind)) return cryoEq(C);
     if(C.kind==='col') return {
       columna:{title:`${C.colTag} · ${C.title}`}, alimentacion:{title:`Alimentación desde ${C.feedFrom}`}, venteo:{title:'PIC venteo · Colector de Baja'},
       condensador:{title:`${C.aeroTag} · Condensador de tope`}, acumulador:{title:`${C.accTag} · Acumulador`}, bombas:{title:`${C.pumpTag} · Bombas`},
@@ -7586,6 +7959,7 @@ setInterval(tickChrom, 1500);
   function valsHtml(){
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
+    if(CRYO.includes(C.kind)) return cryoVals(C, s);
     if(C.kind==='col'){
       const reb = state.reboilers[C.reb];
       if(s==='columna') return kpi('Presión', f1(V(C.psigKey)), 'psig', zc(C.psigKey,V(C.psigKey))) + kpi('Tope', f1(V(C.topKey)), '°F', zc(C.topKey,V(C.topKey))) + kpi('Nivel fondo', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi(C.reb==='depro'?'Pureza C3':'Pureza C4', f1(V(C.reb==='depro'?'purityC3':'purityC4')), '%', zc(C.reb==='depro'?'purityC3':'purityC4', V(C.reb==='depro'?'purityC3':'purityC4'), '#33D69F'));
@@ -7624,6 +7998,7 @@ setInterval(tickChrom, 1500);
   function controlsHtml(){
     if(!READY[twin.area]) return '';
     const C = colOf(), s = twin.sel;
+    if(CRYO.includes(C.kind)) return cryoCtls(C, s);
     const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
     if(C.kind==='col'){
       if(s==='columna') return trend;
@@ -7672,7 +8047,7 @@ setInterval(tickChrom, 1500);
 
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
-    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (zona Fraccionamiento).</div>`; return; }
+    if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (zonas Criogenia y Fraccionamiento).</div>`; return; }
     const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
     el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
@@ -7692,7 +8067,9 @@ setInterval(tickChrom, 1500);
   function act(btn){
     const a = btn.dataset.twAct;
     if(state.esdActive && a!=='vessel'){ addLog('ESD activo: maniobra bloqueada desde el gemelo 3D.','alarm'); return; }
-    if(a==='fan'){
+    if(cryoAct(a, btn)){
+      /* maniobra de criogenia ya aplicada */
+    } else if(a==='fan'){
       const ae = state.aeros[btn.dataset.ae], i = +btn.dataset.i;
       ae.fans[i] = !ae.fans[i]; ae.mode = 'MANUAL';
       addLog(`Motor M${i+1} de ${ae.tag} ${ae.fans[i]?'ARRANCADO':'DETENIDO'}.`, ae.fans[i]?'ok':'info');
