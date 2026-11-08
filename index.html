@@ -1625,6 +1625,17 @@
 .tw-fall{animation:twFallG 1s linear infinite}
 @keyframes twFallG{from{transform:translateY(-8px);opacity:.2}50%{opacity:1}to{transform:translateY(26px);opacity:.2}}
 
+.tw-pfd{border:1px solid #2A3A52;border-radius:8px;background:#0F1826;padding:6px 8px;margin-top:4px}
+.tw-pfd summary{cursor:pointer;font-size:12px;font-weight:600;color:#9AD8FF;letter-spacing:.02em;padding:4px 0}
+.tw-pfd-eq{border-top:1px solid #1E2B3E;padding:6px 0}
+.tw-pfd-n{font-size:12px;font-weight:600;color:#DCE6F2;margin-bottom:4px}
+.tw-pfd-r{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;color:#8A9BB3;line-height:1.5}
+.tw-pfd-r b{color:#DCE6F2;font-weight:500;text-align:right}
+.tw-pfd-sub{font-size:10.5px;color:#FFB300;text-transform:uppercase;letter-spacing:.06em;margin:5px 0 2px}
+.tw-pfd-c{display:grid;grid-template-columns:1.2fr 1fr 1.3fr;gap:6px;font-size:11.5px;color:#8A9BB3;line-height:1.6}
+.tw-pfd-c b{color:#DCE6F2}
+.tw-esdbar{background:#3A1218;border:1px solid #FF4B4B;color:#FFB3B3;border-radius:8px;padding:8px 10px;font-size:12.5px;font-weight:600;margin-bottom:6px}
+.tw-esdbar[hidden]{display:none}
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -1988,6 +1999,7 @@ const state = {
   hornoA:false, hornoB:false, cascadeCounter:0, hornoBDesired:false,
   loadSmooth:0,
   towerTimer:0,
+  tic0201:{ mode:'CAS', sp:485, op:0, pv:70 },   // TIC-0201 calentador gas de regeneración D21.0201
   lastDewPoint:-25,
   lastWaterDew:-48,
   h2oPpm:0.68,
@@ -2214,6 +2226,7 @@ function applyColdResetPreset(){
   state.coolerCap = 0; state.vals.coolerOutPV = 72;
   state.hornoA = false; state.hornoB = false; state.hornoBManual = false;
   state.vals.hotOilTemp = 75;
+  state.tic0201 = { mode:'CAS', sp:485, op:0, pv:70 };
 
   // Apagar todos los ventiladores de aeroenfriadores
   Object.values(state.aeros).forEach(a => { a.fans = [false,false,false,false]; a.mode = 'MANUAL'; });
@@ -2223,7 +2236,7 @@ function applyColdResetPreset(){
   Object.keys(state.vessels).forEach(k => {
     const v = state.vessels[k];
     v.pv = Math.min(5, v.sp * 0.2);
-    v.mode = 'MANUAL';
+    v.mode = 'AUTO';   // los LIC quedan en automático: drenan solos cuando el nivel pasa el SP
     v.op = 0;
     state.vals[k] = v.pv;
   });
@@ -4804,9 +4817,32 @@ function stepPhysics(){
   const capacityUnits = (state.hornoA?1:0) + (state.hornoB?1:0);
   const hotOilOn = capacityUnits>0 && hoPumpsRunning>0;
   const hotOilTarget = hotOilOn ? Math.max(80, Math.min(516, 514.3 - Math.max(0, callingCount - capacityUnits*1.2)*28)) : 80;
-  { // calentamiento/enfriamiento del hot oil limitado (~3.6 °F/min subiendo, ~1.8 °F/min bajando)
+  { // calentamiento/enfriamiento del hot oil limitado (~13 °F/min subiendo → ~35 min de frío a 515 °F; ~5 °F/min bajando)
     const hoT = state.vals.hotOilTemp, d = (hotOilTarget - hoT)/240;
-    state.vals.hotOilTemp = Math.min(516, Math.max(60, hoT + Math.max(-0.03, Math.min(0.06, d)) + n(0.2)));
+    state.vals.hotOilTemp = Math.min(516, Math.max(60, hoT + Math.max(-0.08, Math.min(0.22, d)) + n(0.1)));
+  }
+
+
+  // TIC-0201 · válvula de hot oil del calentador D21.0201 (gas de regeneración)
+  //  CAS: el SP lo da la secuencia de torres (calentamiento → 485 °F · resto → 100 °F, válvula cerrada)
+  //  AUTO: SP del operador · MAN: apertura fija
+  {
+    const tc = state.tic0201;
+    let heating = false;
+    if(load>0.03 && isRegenActive){
+      if(state.towerMode==='AUTO'){ const st = Math.min(6, Math.floor((state.towerTimer % TOWER_CYCLE_SEC)/TOWER_CYCLE_SEC*7)); heating = (st===1 || st===2); }
+      else heating = true;
+    }
+    state.regenHeating = heating;
+    const flow = load>0.03 && isRegenActive;
+    const gasIn = 80, hoMax = hotOilOn ? Math.max(gasIn, state.vals.hotOilTemp - 10) : gasIn;
+    tc.spEff = tc.mode==='CAS' ? (heating ? 485 : 100) : tc.sp;
+    if(tc.mode!=='MAN'){
+      const need = hoMax > gasIn+5 ? (Math.min(tc.spEff, hoMax) - gasIn) / (hoMax - gasIn) * 100 : 0;
+      tc.op = tc.op + (Math.max(0, Math.min(100, need)) - tc.op) * 0.25;
+    }
+    const tgt = flow ? gasIn + (hoMax - gasIn) * tc.op/100 : 70;
+    tc.pv = tc.pv + (tgt - tc.pv) * 0.2 + n(0.2);
   }
 
   // Reboilers
@@ -5122,7 +5158,7 @@ function stepPhysics(){
     regenFlowMMSCFD: isRegenActive && load>0.03 ? (5.452 * load + n(0.03)) : 0,
     regenTemp: hotOilOn ? (515.57 - (514.3 - state.vals.hotOilTemp) + n(0.4)) : 80.0,
     regenHotOilTemp: hotOilOn ? (515.57 - (514.3 - state.vals.hotOilTemp) + n(0.4)) : 80.0,
-    regenHeaterOutTemp: isRegenActive && hotOilOn ? (78.03 + n(0.3)) : 68.0,
+    regenHeaterOutTemp: state.tic0201.pv,
 
     // 8. intercambiadores
     hx301InTemp: cryoMix(-119.84 * cryoEff + n(0.5), 65),
@@ -8574,9 +8610,9 @@ setInterval(tickChrom, 1500);
         <text x="716" y="590" fill="#DCE6F2" font-size="13" font-weight="700" text-anchor="middle">D21.0201</text>
         ${line('M975 300 H716 V400', '#FFB300', ho, null, 3)}<text x="985" y="292" fill="#DCE6F2" font-size="11" text-anchor="end">Hot Oil</text>
         ${line('M752 500 H975', '#FF7043', ho, 'twArrG', 3)}<text x="985" y="492" fill="#DCE6F2" font-size="11" text-anchor="end">Hot Oil</text>
-        ${valve(860, 500, ho?0.6:0, 'NC')}
+        ${valve(860, 500, (state.tic0201.op||0)/100, 'NC')}
         ${rd(860, 236, f2(hoIn), '°F', '#FFB300', 104)} ${rd(860, 262, f2(ho?hoIn-0.4:hoIn), '°F', '#FFB300', 104)}
-        ${ctl(780, 340, 'M', '100.00', f2(tH), '°F', '#FF7043', 'TIC-0201')}
+        ${ctl(780, 340, ({CAS:'C',AUTO:'A',MAN:'M'})[state.tic0201.mode], f2(state.tic0201.spEff ?? state.tic0201.sp), f2(tH), '°F', '#FF7043', 'TIC-0201')}
         ${line('M740 560 V640 H975', '#FF7043', act && ho, 'twArrG', 3)}<text x="985" y="630" fill="#DCE6F2" font-size="11" text-anchor="end">Regen Torres</text>
       </g>
     </svg>`;
@@ -8596,7 +8632,7 @@ setInterval(tickChrom, 1500);
     if(s==='d210202') return kpi('Salida', f2(V('coolerOutTemp')), '°F', '#7FD4FF') + kpi('Entrada', f2(V('regenInTemp')), '°F', '#FF7043') + kpi('Capacidad', f0(state.coolerCap), '%', '#FFB300');
     if(s==='d820202') return kpi('Nivel', f1(V('lvlD820202')), '%', zc('lvlD820202',V('lvlD820202'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820202.sp), '%', '#FFB300');
     if(s==='fic') return kpi('Caudal', f2(V('regenFlowMMSCFD')), 'MMSCFD', '#7FD4FF') + kpi('SP', '5.500', 'MMSCFD', '#FFB300');
-    return kpi('Hot oil', f1(V('regenTemp')), '°F', '#FFB300') + kpi('TIC-0201 PV', f2(V('regenHeaterOutTemp')), '°F', '#FF7043') + kpi('SP (manual)', '100', '°F', '#FFB300');
+    { const tc = state.tic0201; return kpi('TIC-0201 PV', f1(V('regenHeaterOutTemp')), '°F', '#FF7043') + kpi(tc.mode==='MAN'?'Modo':'SP '+(tc.mode==='CAS'?'(CAS)':'(AUTO)'), tc.mode==='MAN'?'MAN':f0(tc.spEff ?? tc.sp), tc.mode==='MAN'?'':'°F', '#FFB300') + kpi('Válvula hot oil', f0(tc.op), '%', '#DCE6F2') + kpi('Ciclo', state.regenHeating?'CALENTANDO':'SIN CALENTAR', '', state.regenHeating?'#FFCC66':'#8A9BB3'); }
   }
   function deshCtls(C, s){
     const trend = `<div class="tw-ctl-title">Tendencia · últimos 3 min</div><div id="tw-trend"></div>`;
@@ -8609,13 +8645,23 @@ setInterval(tickChrom, 1500);
     if(s==='d210202') return `<div class="tw-ctl-title">Capacidad del enfriador</div>` + step('cooler', f0(state.coolerCap), '%', '−10', '+10') + trend;
     if(s==='d820202') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820202">Faceplate LIC-0202</button><button type="button" class="tw-btn" data-tw-act="drain0202">Purgar a 2.3%</button>`;
     if(s==='fic') return `<div class="tw-note">El gas de regeneración se toma de la salida de los recompresores, se calienta en D21.0201, regenera la torre, se enfría en D21.0202 y separa el agua en D82.0202.</div>`;
-    return `<div class="tw-note">El calentador usa hot oil a ~515 °F. Sin hornos en marcha no hay regeneración en caliente.</div>`;
+    { const tc = state.tic0201, mb = m => `<button type="button" class="tw-btn ${tc.mode===m?'on':''}" data-tw-act="t201mode" data-k="${m}">${m}<br><small>${m==='CAS'?'SP de la secuencia':m==='AUTO'?'SP del operador':'apertura fija'}</small></button>`;
+      const st = (act,u) => `<div class="tw-grid4">${[-10,-1,1,10].map(d=>`<button type="button" class="tw-btn" data-tw-act="${act}" data-d="${d}">${d>0?'+':'−'}${Math.abs(d)}${u}</button>`).join('')}</div>`;
+      let h = `<div class="tw-ctl-title">TIC-0201 · válvula de hot oil</div><div class="tw-grid4" style="grid-template-columns:repeat(3,1fr)">${mb('CAS')}${mb('AUTO')}${mb('MAN')}</div>`;
+      if(tc.mode==='AUTO') h += `<div class="tw-ctl-title">Setpoint</div><div class="tw-stepv" style="min-height:40px">${f0(tc.sp)} °F</div>${st('t201sp','°')}<div class="tw-step"><input type="number" class="tw-in" id="tw-in-t201" min="80" max="500" step="1" value="${f0(tc.sp)}" aria-label="Setpoint en °F"><button type="button" class="tw-btn" data-tw-act="t201set">Aplicar SP</button></div>`;
+      else if(tc.mode==='MAN') h += `<div class="tw-ctl-title">Apertura válvula (OP)</div><div class="tw-stepv" style="min-height:40px">${f0(tc.op)} %</div>${st('t201op','%')}<div class="tw-step"><input type="number" class="tw-in" id="tw-in-t201" min="0" max="100" step="1" value="${f0(tc.op)}" aria-label="Apertura en %"><button type="button" class="tw-btn" data-tw-act="t201set">Aplicar %</button></div>`;
+      return h + `<div class="tw-note">${tc.mode==='CAS' ? 'En cascada la secuencia de torres manda: en el paso de calentamiento pide 485 °F (diseño PFD) y fuera de él cierra la válvula.' : tc.mode==='AUTO' ? 'En AUTO mantiene tu SP aunque la torre esté enfriando: volvé a CAS para que la secuencia lo maneje.' : 'En MAN la temperatura depende de la apertura y del hot oil (' + f0(V('hotOilTemp')) + ' °F).'}</div>`; }
   }
   function deshAct(a, btn){
     const d = +btn.dataset.d, k = btn.dataset.k;
     if(a==='tmode'){ state.towerMode = k; addLog(`Torres deshidratadoras en MODO ${k}.`, 'info'); return true; }
     if(a==='tman'){ state.manualTowerStep = k; addLog(`Secuencia manual de torres fijada en: ${k}`, 'info'); return true; }
     if(a==='cooler'){ state.coolerCap = Math.max(0, Math.min(100, state.coolerCap + d*10)); addLog(`Capacidad del enfriador D21.0202 ajustada a ${state.coolerCap}%`, 'info'); return true; }
+    if(a==='t201mode'){ const tc = state.tic0201; if(k==='AUTO') tc.sp = Math.round(tc.pv); tc.mode = k; addLog(`TIC-0201 (D21.0201) pasado a ${k}.`, 'info'); return true; }
+    if(a==='t201sp'){ const tc = state.tic0201; tc.sp = Math.max(80, Math.min(500, tc.sp + d)); addLog(`TIC-0201 SP a ${tc.sp} °F`, 'info'); return true; }
+    if(a==='t201op'){ const tc = state.tic0201; tc.op = Math.max(0, Math.min(100, tc.op + d)); addLog(`TIC-0201 apertura a ${f0(tc.op)} %`, 'info'); return true; }
+    if(a==='t201set'){ const tc = state.tic0201, v = parseFloat(($('tw-in-t201')||{}).value); if(isNaN(v)) return true;
+      if(tc.mode==='MAN') tc.op = Math.max(0, Math.min(100, v)); else tc.sp = Math.max(80, Math.min(500, v)); addLog(`TIC-0201 ${tc.mode==='MAN'?'apertura a '+f0(tc.op)+' %':'SP a '+tc.sp+' °F'}`, 'info'); return true; }
     if(a==='drain0202'){ state.vessels.lvlD820202.pv = 2.3; addLog('Separador de gas de regeneración D82.0202 drenado a 2.3%.','ok'); return true; }
     return false;
   }
@@ -9028,16 +9074,129 @@ setInterval(tickChrom, 1500);
       <div class="tw-trendlbl"><span>${f1(min+2)}</span><span>${f1(max-2)}</span></div>`;
   }
 
+  /* ===================== DATOS DE DISEÑO · PFD ACEN-101-PL-Y-032 rev 2 =====================
+     Process Flow Diagram – Expander Facilities. Son datos de diseño originales: la operación
+     real (capturas DCS) manda; acá se muestran como referencia y para comparar.
+     d: filas fijas [etiqueta, valor]   c: comparación [etiqueta, valor diseño, unidad, clave sim] */
+  const PFD = {
+    /* ---------- Recepción / compresión de entrada ---------- */
+    'V-101': { n:'Slug catcher de baja presión', d:[['Presión de llegada','39,5 psig (PI5107)'],['Rango normal','2,5–3,0 kg/cm²g'],['Bloqueo / venteo','SDV-5202 · BDV-5102 a antorcha']], c:[['Presión colector baja',39.5,'psig','psigBajaP']] },
+    'V-102': { n:'Slug catcher de media presión', d:[['Presión de llegada','279,4 psig (PI5207)'],['Rango normal','20–22 kg/cm²g'],['Bloqueo / venteo','SDV-5201 · BDV-5202 a antorcha'],['Caudal media (FIC5207)','9 MMSCFD']], c:[['Presión colector media',279.4,'psig','psigMediaP']] },
+    'V-103': { n:'Slug catcher de alta presión', d:[['Presión de llegada','863,9 psig (PI5307)'],['Rango normal','60–65 kg/cm²g'],['Bloqueo / venteo','SDV-5301 · BDV-5302 a antorcha'],['Caudal alta (FIC5307)','12 MMSCFD']], c:[['Presión colector alta',863.9,'psig','psigAltaP']] },
+    'F-101': { n:'Filtro/separador de baja', d:[['Destino','Succión compresores (PT6107 28 psig)'],['Caudal de baja','21 MMSCFD']] },
+    'F-102': { n:'Filtro/separador de media', d:[['Destino','Colector de media a compresión'],['Reparto alta/media (FIC)','70/30']] },
+    'COMP-ENT': { n:'Compresores de gas de entrada (1A · 5B · 2C · 6D · 3E)', d:[['Etapas','3 etapas con aeroenfriador por etapa'],['Succión de baja','28 psig (PT6107)'],['Gas a planta KTI','50 MMSCFD'],['Control','PIC5107 / FIC5107 al governor']], c:[['Succión baja',28,'psig','succionBajaPSIG']] },
+    'S-inlet': { n:'Gas de entrada a planta (corriente 1)', d:[['Caudal','50 MMSCFD'],['Presión','850 psig'],['Temperatura','105 °F'],['Peso molecular','19,41']], c:[['Caudal de entrada',50,'MMSCFD','inletFlow']] },
+    'D95.0101': { n:'Filtro/coalescedor gas de entrada', d:[['MWP','1000 psig @ 175 °F'],['Gas de entrada','50 MMSCFD · 850 psig · 105 °F · PM 19,41']], c:[['Caudal de entrada',50,'MMSCFD','inletFlow']] },
+    'D21.0203': { n:'Calentador trim tamiz molecular', d:[['Duty','0,45 MMBTU/h'],['Hot oil','500 °F → 300 °F · 10 GPM']] },
+    /* ---------- Deshidratación / regeneración ---------- */
+    'D82.0201': { n:'Deshidratadores gas de entrada (A/B/C)', d:[['Tamaño','60" I.D. × 20\'-0" S-S'],['MWP','1000 psig @ 525 °F'],['Instrumentos','PDI y TC en la entrada']] },
+    'D95.0201': { n:'Filtros salida deshidratadores (A/B)', d:[['MWP','1000 psig @ 175 °F'],['Salida','Corriente 2 a D21.0301 / D21.0303']] },
+    'S-regen': { n:'Gas de regeneración', d:[['Caudal','5,0 MMSCFD (ciclo de calentamiento)'],['Salida D21.0201','485 °F'],['Ciclos','Calentamiento / enfriamiento por válvulas KV']], c:[['Caudal regeneración',5.0,'MMSCFD','regenFlowMMSCFD'],['Salida calentador',485,'°F','regenHeaterOutTemp']] },
+    'D21.0201': { n:'Calentador gas de regeneración', d:[['Duty','1,4 MMBTU/h'],['Hot oil','500 °F → 290 °F · 25,9 GPM'],['Gas','5,0 MMSCFD → 485 °F']], c:[['Salida gas',485,'°F','regenHeaterOutTemp'],['Caudal gas',5.0,'MMSCFD','regenFlowMMSCFD']] },
+    'D21.0202': { n:'Enfriador gas de regeneración', d:[['Duty','2,02 MMBTU/h'],['Medio','Agua de enfriamiento (C.W.)']] },
+    'D82.0202': { n:'Scrubber gas de regeneración', d:[['Tamaño','18" O.D. × 8\'-0" S-F'],['MWP','1000 psig @ 150 °F'],['Operación','855 psig · 93 °F']], c:[['Temp. salida enfriador',93,'°F','coolerOutTemp']] },
+    'D95.0202': { n:'Coalescedor gas de regeneración (A/B)', d:[['Función','Separa líquido del gas de regeneración antes del ciclo']] },
+    /* ---------- Gas residual ---------- */
+    'S-residuo': { n:'Gas residual a venta', d:[['Caudal','40,4 MMSCFD'],['Presión','855 psig'],['Temperatura','120 °F'],['Peso molecular','17,16']], c:[['Caudal a venta',40.4,'MMSCFD','salesFlow'],['Presión salida',855,'psig','salesPSIG']] },
+    'D42.0301': { n:'Compresores gas residual (A/B/C/D) = recompresores', d:[['Potencia','1027 HP cada uno'],['Descarga','875 psig · 286 °F'],['Succión (de D27.0302)','117 °F'],['Control','Engine governor']] },
+    'D27.0301': { n:'Enfriador gas residual (A/B)', d:[['Duty','4,81 MMBTU/h'],['Entrada','875 psig · 286 °F'],['Salida','115 °F (a filtro)']] },
+    'S-booster': { n:'Descarga booster → succión recompresores', d:[['Descarga booster','325 psig · 157 °F'],['Salida D27.0302','117 °F'],['Derivación','Gas de potencia / instrumentos']], c:[['Succión recompresores',325,'psig','rcSuccPSIG']] },
+    'D27.0302': { n:'Enfriador descarga booster (A/B)', d:[['Duty','0,915 MMBTU/h'],['Entrada','325 psig · 157 °F'],['Salida','117 °F']] },
+    /* ---------- Criogenia ---------- */
+    'D41.0301': { n:'Expansor / compresor booster', d:[['Potencia','770 HP'],['Entrada expansor (corr. 8)','45,5 MMSCFD · PM 17,85 · 828 psig · −26 °F'],['Salida expansor (corr. 9)','251 psig · −110 °F'],['Booster','100 °F de D21.0301 → 325 psig · 157 °F']], c:[['Presión entrada',828,'psig','psigExpansor'],['Temp. entrada',-26,'°F','expInTemp'],['Temp. salida',-110,'°F','tempExpansorOut']] },
+    'D82.0301': { n:'Separador de entrada al expansor', d:[['Tamaño','42" I.D. × 8\'-0" S-S'],['MWP','1000 psig @ −50/150 °F'],['Operación','828 psig · −26 °F'],['Líquido de fondo (corr. 10)','69,7 GPM · 0,494 S.G.']], c:[['Presión',828,'psig','psigExpansor'],['Temperatura',-26,'°F','expInTemp']] },
+    'D21.0301': { n:'Intercambiadores gas/gas (A/B)', d:[['Duty','7,4 MMBTU/h'],['Gas de entrada','111 °F → −17 °F'],['Gas residual frío','−54 °F → 100 °F']] },
+    'D21.0303': { n:'Intercambiador líquido caliente/gas', d:[['Duty','2,07 MMBTU/h'],['Gas','111 °F → 13 °F'],['Líquido frío (corr. 11)','−60 °F']] },
+    'D21.0304': { n:'Intercambiador líquido frío/gas', d:[['Duty','1,7 MMBTU/h'],['Gas','13 °F → −46 °F'],['Líquido a deetanizador (corr. 16)','−7 °F']] },
+    'D21.0308': { n:'Trim heater de líquido caliente', d:[['Duty','0,24 MMBTU/h'],['Alimentación deetanizador','77 °F → 90 °F (corr. 12)'],['Hot oil','500 °F → 300 °F · 5 GPM']] },
+    'D81.0301': { n:'Recontactor', d:[['Tamaño','54" I.D. × 24\'-0" S-S'],['MWP','475 psig @ −150/150 °F'],['Operación','251 psig · −112 °F'],['Gas de tope (corr. 13)','46,9 MMSCFD · PM 17,4'],['Líquido de fondo (corr. 14)','56,3 GPM · 0,407 S.G.']], c:[['Presión',251,'psig','psigRecontactor'],['Temp. tope',-112,'°F','recontTopTemp']] },
+    'D31.0301': { n:'Bombas líquido recontactor (A/B)', d:[['Diseño','46,4 GPM @ P.T. · 0,494 S.G.'],['ΔP','60 psi']], c:[['Caudal',46.4,'GPM','recontPumpGPM']] },
+    'D21.0305': { n:'Intercambiador reflujo recontactor', d:[['Duty','1,82 MMBTU/h'],['Gas de tope','−112 °F → −82 °F'],['Reflujo','−39 °F → −103 °F']], c:[['Gas de tope',-112,'°F','recontTopTemp']] },
+    /* ---------- Fraccionamiento ---------- */
+    'D81.0302': { n:'Deetanizador', d:[['Tamaño','36" I.D. × 66\'-0" S-S'],['MWP','525 psig @ −50/250 °F'],['Fondo','340 psig · 197 °F'],['Producto de fondo (corr. 30)','41,8 GPM · 0,553 S.G.'],['Alimentaciones','−7 °F (corr. 16) · 90 °F (corr. 12)']], c:[['Presión',340,'psig','psigDeet'],['Temp. fondo',197,'°F','bottomTempDeet']] },
+    'D21.0307': { n:'Reboiler deetanizador', d:[['Duty','2,4 MMBTU/h'],['ΔP','40 psi'],['Proceso','197 °F → 206 °F'],['Hot oil','500 °F → 240 °F']], c:[['Temp. fondo',197,'°F','bottomTempDeet']] },
+    'D82.0302': { n:'Acumulador reflujo deetanizador', d:[['Tamaño','30" I.D. × 8\'-0" S-S'],['MWP','525 psig @ −50/150 °F'],['Operación','330 psig · −36,5 °F'],['Vapor (corr. 18)','3,9 MMSCFD · PM 21,3'],['Líquido (corr. 19)','35,4 GPM · 0,364 S.G.']], c:[['Presión',330,'psig','deetRefluxPSIG']] },
+    'D31.0302': { n:'Bombas reflujo deetanizador (A/B)', d:[['Diseño','29,4 GPM @ P.T. · 0,438 S.G.']], c:[['Reflujo',29.4,'GPM','deetRefluxGPM']] },
+    'D21.0306': { n:'Intercambiador reflujo deetanizador', d:[['Duty','1,38 MMBTU/h']] },
+    'D81.0501': { n:'Depropanizador', d:[['Tamaño','36" I.D. × 70\'-0" S-S'],['MWP','310 psig @ 310 °F'],['Tope','255 psig · 130 °F'],['Fondo','258 psig · 256 °F'],['Vapor de tope (corr. 31)','4,7 MMSCFD · PM 44,18'],['Alimentación','77,5 GPM · 0,471 S.G.']], c:[['Presión',255,'psig','psigDepro'],['Temp. tope',130,'°F','topTempDepro'],['Temp. fondo',256,'°F','bottomTempDepro']] },
+    'D27.0501': { n:'Condensador reflujo depropanizador (A/B)', d:[['Duty','1,43 MMBTU/h'],['Salida al acumulador','121 °F']] },
+    'D82.0501': { n:'Acumulador reflujo depropanizador', d:[['Tamaño','36" I.D. × 8\'-0" S-S'],['MWP','310 psig @ 175 °F'],['Operación','247 psig · 121 °F'],['Salida a bombas','99,5 GPM · 0,457 S.G.']] },
+    'D31.0501': { n:'Bombas reflujo depropanizador (A/B)', d:[['Diseño','86,9 GPM @ P.T. · 0,444 S.G.'],['ΔP','40 psi']] },
+    'D21.0501': { n:'Reboiler depropanizador', d:[['Duty','3,1 MMBTU/h'],['Proceso','256 °F → 263 °F'],['Hot oil','500 °F → 290 °F · 67 GPM']], c:[['Temp. fondo',256,'°F','bottomTempDepro']] },
+    'S-refl-depro': { n:'Reflujo depropanizador (corr. 33)', d:[['Caudal','59,6 GPM']], c:[['Reflujo',59.6,'GPM','deproRefluxGPM']] },
+    'S-prod-depro': { n:'Propano a almacenaje (corr. 32)', d:[['Caudal','39,9 GPM · 0,506 S.G.']], c:[['Envío propano',39.9,'GPM','deproProdFlow']] },
+    'S-bot-depro': { n:'Fondo depropanizador a debutanizador (corr. 34)', d:[['Caudal','20,1 GPM · 0,604 S.G.'],['Temperatura','256 °F']], c:[['Caudal fondo',20.1,'GPM','deproBotFlow']] },
+    'S-feed-depro': { n:'Alimentación depropanizador (fondo deetanizador)', d:[['Caudal','77,5 GPM · 0,471 S.G.']] },
+    'D81.0502': { n:'Debutanizador', d:[['Tamaño','30" I.D. × 57\'-0" S-S'],['MWP','130 psig @ 350 °F'],['Tope','75 psig · 131 °F'],['Fondo','78 psig · 238 °F'],['Vapor de tope (corr. 41)','1,88 MMSCFD · PM 57,8'],['Alimentación','20,1 GPM · 0,604 S.G.']], c:[['Presión',75,'psig','psigDebu'],['Temp. tope',131,'°F','topTempDebu'],['Temp. fondo',238,'°F','bottomTempDebu']] },
+    'D27.0502': { n:'Condensador reflujo debutanizador (A/B)', d:[['Duty','0,86 MMBTU/h'],['Salida al acumulador','122 °F']] },
+    'D82.0502': { n:'Acumulador reflujo debutanizador', d:[['Tamaño','24" I.D. × 6\'-0" S-S'],['MWP','130 psig @ 175 °F'],['Operación','75 psig · 122 °F'],['Salida a bombas','31,6 GPM · 0,577 S.G.']] },
+    'D31.0502': { n:'Bombas reflujo debutanizador (A/B)', d:[['Diseño','34,6 GPM @ P.T. · 0,521 S.G.']] },
+    'D21.0502': { n:'Reboiler debutanizador', d:[['Duty','1,38 MMBTU/h'],['Proceso','238 °F → 243 °F'],['Hot oil','500 °F → 275 °F · 27 GPM']], c:[['Temp. fondo',238,'°F','bottomTempDebu']] },
+    'S-refl-debu': { n:'Reflujo debutanizador (corr. 43)', d:[['Caudal','27,5 GPM']], c:[['Reflujo',27.5,'GPM','debuRefluxGPM']] },
+    'S-prod-debu': { n:'Butanos a almacenaje (corr. 42)', d:[['Caudal','17,1 GPM · 0,577 S.G.']], c:[['Envío butano',17.1,'GPM','debuProdFlow']] },
+    'S-bot-debu': { n:'Gasolina a almacenaje (corr. 44)', d:[['Caudal','17,2 GPM · 0,646 S.G.'],['Temperatura','238 °F → 125 °F (D27.0503)']], c:[['Caudal gasolina',17.2,'GPM','debuBotFlow']] },
+    'S-feed-debu': { n:'Alimentación debutanizador (fondo depropanizador)', d:[['Caudal','20,1 GPM · 0,604 S.G.']], c:[['Caudal',20.1,'GPM','deproBotFlow']] },
+    'D27.0503': { n:'Enfriador producto gasolina (A/B)', d:[['Duty','0,186 MMBTU/h'],['Temperatura','238 °F → 125 °F'],['Caudal','17,2 GPM · 0,646 S.G.']], c:[['Temp. gasolina',125,'°F','gasolinaTemp']] },
+    'S-productos': { n:'Productos a almacenaje (límite de batería)', d:[['Propano','39,9 GPM · 0,506 S.G.'],['Butanos','17,1 GPM · 0,577 S.G.'],['Gasolina','17,2 GPM · 0,646 S.G.']], c:[['Propano',39.9,'GPM','deproProdFlow'],['Butanos',17.1,'GPM','debuProdFlow'],['Gasolina',17.2,'GPM','debuBotFlow']] },
+    /* ---------- Hot oil (lo que el PFD dice de los usuarios) ---------- */
+    'HO-users': { n:'Usuarios de hot oil según PFD', d:[['Suministro','500 °F'],['D21.0501 reboiler depro','67 GPM · retorno 290 °F'],['D21.0502 reboiler debu','27 GPM · retorno 275 °F'],['D21.0307 reboiler deet','retorno 240 °F'],['D21.0201 calentador regen.','25,9 GPM · retorno 290 °F'],['D21.0203 trim tamiz','10 GPM · retorno 300 °F'],['D21.0308 trim deet','5 GPM · retorno 300 °F']] }
+  };
+  const PFD_ALIAS = { 'AE-0501':'D27.0501', 'AE-0502':'D27.0502', 'P-0501':'D31.0501', 'P-0502':'D31.0502', 'P-0306':'D31.0302', 'P-0301':'D31.0301', 'PV-0301':'D82.0301' };
+  const PFD_SEL = {
+    'exp:expansor':['D41.0301'], 'exp:booster':['D41.0301','S-booster'], 'exp:aero':['D27.0302','S-booster'], 'exp:jt':['D82.0301'], 'exp:recirc':['S-booster'],
+    'rc:rc4':['D42.0301'], 'rc:rc7':['D42.0301'], 'rc:rc8':['D42.0301'], 'rc:rc9':['D42.0301'], 'rc:rpm':['D42.0301'], 'rc:succion':['S-booster'], 'rc:aero':['D27.0302'],
+    'recont:pic':['D81.0301'], 'recont:fondo':['D31.0301','D81.0301'],
+    'sep:proceso':['V-103','S-inlet'], 'comp:succion':['COMP-ENT','F-101'], 'comp:descarga':['COMP-ENT'], 'comp:aero':['COMP-ENT'],
+    'plant:entrada':['S-inlet'], 'plant:salida':['S-residuo','D27.0301'], 'plant:totales':['S-inlet','S-residuo','S-productos'],
+    'tow:torreA':['D82.0201'], 'tow:torreB':['D82.0201'], 'tow:torreC':['D82.0201'], 'tow:rocio':['D95.0201'],
+    'regen:fic':['S-regen'], 'ho:usuarios':['HO-users'], 'storage:propano':['S-prod-depro'], 'storage:butano':['S-prod-debu'], 'storage:gasolina':['S-bot-debu'],
+    'deet:alimentacion':['D21.0304','D21.0308'], 'recont:rpm':['D42.0301'], 'refdeet:nivel':['D82.0302'], 'ho:bombas':['HO-users'], 'ho:tanque':['HO-users'], 'ho:fic':['HO-users'], 'ha:salida':['HO-users'], 'hb:salida':['HO-users'], 'deet:fondo':['S-feed-depro'], 'refdeet:reflujo':['D31.0302'], 'refdeet:gas':['D82.0302']
+  };
+  function pfdKeys(C, sel, title){
+    const out = [], add = k => { if(k && PFD[k] && !out.includes(k)) out.push(k); };
+    (PFD_SEL[C.kind+':'+sel] || []).forEach(add);
+    if(C.kind==='comp' && /^mc/.test(sel)) add('COMP-ENT');
+    if(C.kind==='col'){ const r = C.reb, m = { columna:C.colTag, condensador:r==='depro'?'D27.0501':'D27.0502', acumulador:C.accTag, bombas:r==='depro'?'D31.0501':'D31.0502',
+        reboiler:C.rebTag, reflujo:'S-refl-'+r, producto:'S-prod-'+r, fondo:'S-bot-'+r, alimentacion:'S-feed-'+r, venteo:C.colTag }; add(m[sel]); if(sel==='fondo' && r==='debu') add('D27.0503'); }
+    const tags = String(title||'').match(/D\d{2}[.\-]\d{4}|[VF]-10\d|AE-\d{4}|PV-\d{4}|P-\d{4}/g) || [];
+    tags.forEach(t => { t = t.replace(/^(D\d{2})-/, '$1.'); add(PFD_ALIAS[t] || t); });
+    return out;
+  }
+  const pfdNum = (v,u) => (u==='MMSCFD' ? v.toFixed(1) : Math.abs(v)<100 && v%1 ? v.toFixed(1) : Math.round(v).toString()).replace('.',',');
+  function pfdBody(keys){
+    return keys.map(k => { const e = PFD[k];
+      const rows = e.d.map(([l,v]) => `<div class="tw-pfd-r"><span>${l}</span><b>${v}</b></div>`).join('');
+      const cmp = (e.c||[]).map(([l,dv,u,key]) => {
+        const act = (state.lastV && typeof state.lastV[key]==='number') ? state.lastV[key] : null;
+        if(act===null) return '';
+        const dev = dv!==0 ? (act-dv)/Math.abs(dv)*100 : 0, big = Math.abs(dev) > (u==='°F' ? 15 : 20);
+        return `<div class="tw-pfd-c"><span>${l}</span><span>Diseño <b>${pfdNum(dv,u)}</b></span><span>Actual <b style="color:${big?'#FFCC66':'#33D69F'}">${pfdNum(act,u)}</b> ${u}</span></div>`;
+      }).join('');
+      return `<div class="tw-pfd-eq"><div class="tw-pfd-n">${k.startsWith('S-')||k.includes('-ENT')||k.startsWith('HO-')?'':k+' · '}${e.n}</div>${rows}${cmp ? `<div class="tw-pfd-sub">Diseño vs. simulador</div>${cmp}` : ''}</div>`;
+    }).join('');
+  }
+  function pfdHtml(C, sel, title){
+    const keys = pfdKeys(C, sel, title); twin.pfdKeys = keys;
+    if(!keys.length) return '';
+    return `<details class="tw-pfd" ${twin.pfdOpen?'open':''} id="tw-pfd-det"><summary>Datos de diseño · PFD ACEN-101-PL-Y-032 rev 2</summary>
+      <div id="tw-pfd-body">${pfdBody(keys)}</div>
+      <div class="tw-note">Diseño original. Si no coincide con la operación actual, manda la operación (capturas DCS). En amarillo: desvío grande respecto al diseño.</div></details>`;
+  }
+  function pfdRefresh(){ const b = $('tw-pfd-body'); if(b && twin.pfdKeys && twin.pfdKeys.length) b.innerHTML = pfdBody(twin.pfdKeys); }
+
   function renderSide(){
     const el = $('tw-side'); if(!el) return;
     if(!READY[twin.area]){ el.innerHTML = `<div class="tw-note">Elegí una pantalla que ya esté en 3D (todas las zonas).</div>`; return; }
     const EQ = eqList(); const eq = EQ[twin.sel] || EQ[Object.keys(EQ)[0]];
-    el.innerHTML = `<div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
+    el.innerHTML = `<div id="tw-esd" class="tw-esdbar" ${state.esdActive?"":"hidden"}>ESD ACTIVO · las maniobras están bloqueadas. Restablecé la ESD para operar.</div><div class="tw-cap">EQUIPO SELECCIONADO</div><div class="tw-eqtitle">${eq.title}</div>
       <div class="tw-kpis" id="tw-vals">${valsHtml()}</div>
       <div class="tw-ctls" id="tw-ctls">${controlsHtml()}</div>
+      ${pfdHtml(colOf(), twin.sel in EQ ? twin.sel : Object.keys(EQ)[0], eq.title)}
       <div class="tw-cap" style="margin-top:6px">CONJUNTO</div>
       <div class="tw-list">${Object.keys(EQ).map(k=>`<button type="button" class="tw-li ${k===twin.sel?'on':''}" data-tw-eq="${k}">${EQ[k].title}</button>`).join('')}</div>`;
     const tr = $('tw-trend'); if(tr) tr.innerHTML = trendSvg();
+    const pd = $('tw-pfd-det'); if(pd) pd.addEventListener('toggle', ()=>{ twin.pfdOpen = pd.open; });
   }
   function renderFoot(){
     const el = $('tw-foot'); if(!el) return;
@@ -9117,7 +9276,7 @@ setInterval(tickChrom, 1500);
     if(!view || !view.classList.contains('active')) return;
     if(!$('tw-svg')) renderShell();
     renderScene();
-    const vals = $('tw-vals'); if(vals) vals.innerHTML = valsHtml();
+    const vals = $('tw-vals'); if(vals) vals.innerHTML = valsHtml(); pfdRefresh(); const eb = $('tw-esd'); if(eb) eb.hidden = !state.esdActive;
     const ctlEl = $('tw-ctls'); if(ctlEl && !ctlEl.matches(':hover') && !ctlEl.contains(document.activeElement)) ctlEl.innerHTML = controlsHtml();
     const tr = $('tw-trend'); if(tr) tr.innerHTML = trendSvg();
     renderFoot();
