@@ -4850,7 +4850,9 @@ function stepPhysics(){
   const mcRpmPV = state.mcRpmRamp > 1 ? state.mcRpmRamp + n(3) : 0;
 
   // Recontactor pressure PIC-0305
-  const recontactorTarget = state.esdActive ? 232 : (load>0.03 ? state.recontactorSP + 6 : 238);
+  // Cerrar la recirculación del turbo/booster manda más gas por el expansor: se "infla" la entrada del Recontactor
+  const recInflate = load>0.03 ? 0.4 * (60 - state.boosterRecyclePV) * Math.min(1, load) : 0;   // ~+0.4 psig por cada % que se cierra
+  const recontactorTarget = state.esdActive ? 232 : (load>0.03 ? state.recontactorSP + 6 + recInflate : 238);
   state.vals.recontactorPV = state.vals.recontactorPV*0.98 + recontactorTarget*0.02 + n(0.5);
 
   /* ---- DINÁMICA DE AEROENFRIADORES FUNCIONALES ---- */
