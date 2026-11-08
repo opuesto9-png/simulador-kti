@@ -2218,6 +2218,7 @@ function applyColdResetPreset(){
     state.vals[k] = v.pv;
   });
 
+  state.hoInventory = 52; state.vessels.lvlD821101.pv = 48.0; state.vessels.lvlD821101.mode = 'AUTO'; state.vals.lvlD821101 = 48.0;
   state.reboilers.deet.sp = state.reboilers.deet.min; state.reboilers.deet.pv = 75;
   state.reboilers.depro.sp = state.reboilers.depro.min; state.reboilers.depro.pv = 75;
   state.reboilers.debu.sp = state.reboilers.debu.min; state.reboilers.debu.pv = 75;
@@ -4760,7 +4761,9 @@ function stepPhysics(){
   state.vals.filtrosPSID = Math.min(9.5, Math.max(1.2, state.vals.filtrosPSID + n(0.03) + (load*0.002*filterMult)));
 
   // Bombas Hot Oil P-1101A/B/C
-  const hoPumpsRunning = (state.pumps.hoA.on?1:0) + (state.pumps.hoB.on?1:0) + (state.pumps.hoC.on?1:0);
+  const hoTankOk = state.vessels.lvlD821101.pv > state.vessels.lvlD821101.lall;
+  const hoPumpsRunning = hoTankOk ? ((state.pumps.hoA.on?1:0) + (state.pumps.hoB.on?1:0) + (state.pumps.hoC.on?1:0)) : 0;
+  if(!hoTankOk && (state.pumps.hoA.on||state.pumps.hoB.on||state.pumps.hoC.on) && Math.random()<0.05) addLog('⚠ Bombas de Hot Oil sin succión: nivel D82.1101 por debajo del LALL, no hay circulación.','alarm');
   const hoFlowFactor = Math.min(1.15, hoPumpsRunning / 2);
 
   // Cascada de hornos Hot Oil
@@ -4872,6 +4875,15 @@ function stepPhysics(){
   Object.keys(state.vessels).forEach(k=>{
     const v = state.vessels[k];
     let inRate = 0, baseOut = 0;
+    if(k==='lvlD821101'){
+      // Circuito cerrado de hot oil: el inventario no se pierde al parar.
+      // El nivel solo varía por dilatación: ~48% en frío → ~52% a 515 °F.
+      const frac = Math.max(0, Math.min(1, (state.vals.hotOilTemp - 80) / 434));
+      const tgt = (state.hoInventory ?? 52) * (0.923 + 0.077*frac);
+      v.pv = Math.max(0, Math.min(100, v.pv + (tgt - v.pv)*0.01 + n(0.02)));
+      state.vals[k] = v.pv;
+      return;
+    }
 
     if(k==='lvlV101') inRate = state.valves.v101 ? (load * 0.09) : 0;
     else if(k==='lvlV102') inRate = state.valves.v102 ? (load * 0.06) : 0;
