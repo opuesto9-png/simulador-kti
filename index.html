@@ -2218,7 +2218,7 @@ function applyColdResetPreset(){
     state.vals[k] = v.pv;
   });
 
-  state.hoInventory = 52; state.vessels.lvlD821101.pv = 48.0; state.vessels.lvlD821101.mode = 'AUTO'; state.vals.lvlD821101 = 48.0;
+  state.hoInventory = 60.4; state.vessels.lvlD821101.pv = 55.7; state.vessels.lvlD821101.mode = 'AUTO'; state.vals.lvlD821101 = 55.7;
   state.reboilers.deet.sp = state.reboilers.deet.min; state.reboilers.deet.pv = 75;
   state.reboilers.depro.sp = state.reboilers.depro.min; state.reboilers.depro.pv = 75;
   state.reboilers.debu.sp = state.reboilers.debu.min; state.reboilers.debu.pv = 75;
@@ -4879,8 +4879,14 @@ function stepPhysics(){
       // Circuito cerrado de hot oil: el inventario no se pierde al parar.
       // El nivel solo varía por dilatación: ~48% en frío → ~52% a 515 °F.
       const frac = Math.max(0, Math.min(1, (state.vals.hotOilTemp - 80) / 434));
-      const tgt = (state.hoInventory ?? 52) * (0.923 + 0.077*frac);
-      v.pv = Math.max(0, Math.min(100, v.pv + (tgt - v.pv)*0.01 + n(0.02)));
+      // aceite que queda "afuera" del tanque llenando el circuito:
+      //  · cada bomba en marcha ~2.5%  · demanda de reboilers hasta ~3%  · Horno B en servicio ~1.5%
+      const demand = Math.max(0, Math.min(1, callingCount/3));
+      const holdup = 2.5*hoPumpsRunning + 3.0*demand + (state.hornoB && hoPumpsRunning>0 ? 1.5 : 0);
+      // inventario calibrado: 2 bombas + 2 hornos + reboilers en SP a 515 °F → 52%
+      const tgt = (state.hoInventory ?? 60.4) * (0.923 + 0.077*frac) - holdup;
+      // al parar/arrancar una bomba el aceite drena o llena el circuito en ~1 min
+      v.pv = Math.max(0, Math.min(100, v.pv + (tgt - v.pv)*0.02 + n(0.03)));
       state.vals[k] = v.pv;
       return;
     }
