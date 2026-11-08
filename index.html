@@ -1620,6 +1620,11 @@
 .tw-svgbtn:hover rect{filter:brightness(1.4)}
 .tw-btn-sel{outline:2px solid #4FC3F7;outline-offset:1px}
 .tw-in{flex:1 1 auto;min-width:0;min-height:44px;border-radius:8px;border:1px solid #2B3B52;background:#0B1220;color:#FFB300;font:700 16px "JetBrains Mono",monospace;padding:0 10px}
+.tw-rise{animation:twRiseG 1s linear infinite}
+@keyframes twRiseG{from{transform:translateY(8px);opacity:.2}50%{opacity:1}to{transform:translateY(-26px);opacity:.2}}
+.tw-fall{animation:twFallG 1s linear infinite}
+@keyframes twFallG{from{transform:translateY(-8px);opacity:.2}50%{opacity:1}to{transform:translateY(26px);opacity:.2}}
+
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -1973,6 +1978,7 @@ const state = {
     hoC:{on:false, tag:'P-1101C', name:'Bomba C Hot Oil (Reserva)', rate:0.05}
   },
   recircOpen:0,
+  boosterRecycleSP:60, boosterRecyclePV:60,
   reboilers:{
     deet:{tag:'D21.0307', name:'Deetanizador', sp:80, pv:80, min:80, max:220, low:160, normal:198},
     depro:{tag:'D21.0501', name:'Depropanizador', sp:80, pv:80, min:80, max:290, low:230, normal:268},
@@ -2138,6 +2144,7 @@ function applySteadyStatePreset(){
   state.recompressors = {rc4:true, rc7:true, rc8:true, rc9:true};
   state.rcRpmSP = 970;
   state.recircOpen = 0; state.expRpmSP = 40000; state.recontactorSP = 262;
+  state.boosterRecycleSP = 60; state.boosterRecyclePV = 59.745;
 
   // Aeros nominales (4 ventiladores en marcha en AUTO)
   Object.values(state.aeros).forEach(a => { a.fans = [true,true,true,true]; a.mode = 'AUTO'; });
@@ -2166,6 +2173,7 @@ function applySteadyStatePreset(){
   state.vals.tankPropano = 32.35; state.vals.tankButano = 18.77; state.vals.tankGasolina = 36.62;
   state.loadSmooth = 1.0;
   state.cryoCool = 1; state.rcRpmRamp = state.rcRpmSP; state.mcRpmRamp = state.mcRpmSP;
+  state.vals.expRpmPV = 33372; state.vals.recontactorPV = 268; state.vals.lowSepPV = 25.5;
   state.esdActive = false;
   state.esdCause = '';
   state.flareFlow = 0.0;
@@ -2200,6 +2208,7 @@ function applyColdResetPreset(){
   RC_KEYS.forEach(k=>state.recompressors[k]=false);
   state.rcRpmSP = 600;
   state.recircOpen = 100; state.expRpmSP = 20000; state.recontactorSP = 238;
+  state.boosterRecycleSP = 100; state.boosterRecyclePV = 100;   // antisurge del booster abierta en frío
   state.filterMode = 'A'; state.vals.filtrosPSID = 0.8; state.vals.filtrosBPSID = 0.5;
   state.towerMode = 'MANUAL'; state.manualTowerStep = 'ADSORCION'; state.sieveSaturation = 0.12; state.h2oPpm = 0.35;
   state.coolerCap = 0; state.vals.coolerOutPV = 72;
@@ -4824,7 +4833,13 @@ function stepPhysics(){
   const recircFactor = 1 - (state.recircOpen/100)*0.90;
 
   // Turboexpansor RPM
-  const expRpmTarget = load>0.03 ? (state.expRpmSP * 0.8343 * recircFactor * Math.min(1,(load+0.20))) : 0;
+  // Recirculación (antisurge) del booster: más recirculación carga al booster y frena al turbo
+  state.boosterRecyclePV = state.boosterRecyclePV + (state.boosterRecycleSP - state.boosterRecyclePV)*0.15;
+  const brDev = (state.boosterRecyclePV - 60) / 100;
+  const boosterLoadF = Math.max(0.6, Math.min(1.12, 1 - 0.35*brDev));
+  if(load > 0.5 && state.boosterRecyclePV < 30 && Math.random() < 0.02)
+    addLog(`⚠ Riesgo de bombeo (surge) en el booster: recirculación al ${state.boosterRecyclePV.toFixed(0)}% con carga alta.`, 'alarm');
+  const expRpmTarget = load>0.03 ? (state.expRpmSP * 0.8343 * recircFactor * Math.min(1,(load+0.20)) * boosterLoadF) : 0;
   state.vals.expRpmPV = Math.max(0, state.vals.expRpmPV*0.98 + expRpmTarget*0.02 + (load>0.03?n(45):0));
 
   // RPM con rampa de aceleración (~25 rpm/s), no instantáneas
@@ -5116,7 +5131,7 @@ function stepPhysics(){
     expSuctionTemp: cryoMix(-31.21 * cryoEff + n(0.3), 65),
     psigExpansor: mcRunning>0 ? (823.0 * (0.88 + 0.12*load) + n(2.0)) : 180,
     expRpm: state.vals.expRpmPV,
-    boosterPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + n(1.0)) : 120,
+    boosterPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + 15*((state.boosterRecyclePV-60)/100) + n(1.0)) : 120,
     boosterSuctionPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + n(1.0)) : 120,
     tempExpansorOut: tempExpOut,
     aeroBoosterTemp: state.aeros.booster.pv,
@@ -5125,7 +5140,7 @@ function stepPhysics(){
     rcAeroTemp: state.aeros.recomp.pv,
     aeroRecompTemp: state.aeros.recomp.pv,
     rpmRecomp: rcRpmPV,
-    rcSuccPSIG: recompRunning>0 ? (328.0 + n(1.2)) : 180,
+    rcSuccPSIG: recompRunning>0 ? (328.0 - 60*((state.boosterRecyclePV-60)/100)*(load>0.03?1:0) + n(1.2)) : 180,
     rcSuctionPSIG: recompRunning>0 ? (328.0 + n(1.2)) : 180,
     rcDischPSIG: recompRunning>0 ? (870.0 * (0.88 + 0.12*recompCapacity) + n(2.0)) : 200,
     rcDischTemp: recompRunning>0 ? (235.0 + (state.aeros.recomp.pv - 80)*1.1 + n(1.2)) : 75,
@@ -7196,6 +7211,24 @@ setInterval(tickChrom, 1500);
   </defs>`;
   const FLOOR = `<path d="M60 600 L500 680 L960 590 L520 520 Z" fill="url(#twGrid)"/><path d="M60 600 L500 680 L960 590 L520 520 Z" fill="none" stroke="#1C2738"/>`;
 
+  // color según temperatura (°F): azul frío → naranja caliente
+  const T_STOPS = [[-120,[61,139,255]],[-40,[79,195,247]],[40,[127,227,208]],[120,[255,209,102]],[200,[255,159,67]],[300,[255,90,60]]];
+  function tColor(T){
+    if(!isFinite(T)) return '#7FD4FF';
+    if(T <= T_STOPS[0][0]) return `rgb(${T_STOPS[0][1].join(',')})`;
+    for(let i=1;i<T_STOPS.length;i++){
+      const [t1,c1] = T_STOPS[i-1], [t2,c2] = T_STOPS[i];
+      if(T <= t2){ const f = (T-t1)/(t2-t1); return `rgb(${c1.map((c,j)=>Math.round(c+(c2[j]-c)*f)).join(',')})`; }
+    }
+    return `rgb(${T_STOPS[T_STOPS.length-1][1].join(',')})`;
+  }
+  function tLegend(x, y, tMin, tMax){
+    return `<g><defs><linearGradient id="twLeg" x1="0" x2="1">${[0,.25,.5,.75,1].map(f=>`<stop offset="${f}" stop-color="${tColor(tMin+(tMax-tMin)*f)}"/>`).join('')}</linearGradient></defs>
+      <text x="${x}" y="${y-6}" fill="#8A9BB3" font-size="10">Corrientes · frío → caliente</text>
+      <rect x="${x}" y="${y}" width="170" height="8" rx="4" fill="url(#twLeg)"/>
+      <text x="${x}" y="${y+22}" fill="${tColor(tMin)}" font-family="${MONO}" font-size="10">${f0(tMin)} °F</text>
+      <text x="${x+170}" y="${y+22}" fill="${tColor(tMax)}" font-family="${MONO}" font-size="10" text-anchor="end">${f0(tMax)} °F</text></g>`;
+  }
   function selBox(id, x, y, w, h){ return twin.sel===id ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="#4FC3F7" stroke-width="2" stroke-dasharray="3 5" class="tw-selbox"/>` : ''; }
   // línea de proceso: d = path, color, encendida
   function line(d, color, on, arrow, w){
@@ -7276,9 +7309,16 @@ setInterval(tickChrom, 1500);
       <text x="${x+w/2}" y="${y+h+34}" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${tag}</text>`;
   }
   // columna en corte (x0 = borde izquierdo, ancho 90, de y=95 a 596)
-  function column(lvl, lvlColor, tag){
+  function column(lvl, lvlColor, tag, tt){
     const trays = [150,185,220,255,290,325,360,395,430,465];
     const sumpH = 38*lvl/100, r = run();
+    tt = tt || null;
+    const prof = tt ? `<defs><linearGradient id="twColGrad" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0" stop-color="${tColor(tt.top)}"/><stop offset=".35" stop-color="${tColor(tt.top+(tt.bot-tt.top)*.35)}"/><stop offset=".7" stop-color="${tColor(tt.top+(tt.bot-tt.top)*.7)}"/><stop offset="1" stop-color="${tColor(tt.bot)}"/></linearGradient></defs>
+      <rect x="383" y="119" width="41" height="408" fill="url(#twColGrad)" opacity="${r?0.38:0.12}"/>` : '';
+    const streams = (tt && r) ? `
+      <g class="tw-rise">${[500,430,360,290,220].map((y,i)=>`<path d="M392 ${y} l-4 6 h8 z" fill="${tColor(tt.top+(tt.bot-tt.top)*((y-120)/400))}" opacity=".95"/>`).join('')}</g>
+      <g class="tw-fall">${[160,230,300,370,440].map((y,i)=>`<circle cx="415" cy="${y}" r="2.6" fill="${tColor(tt.top+(tt.bot-tt.top)*((y-140)/420))}"/>`).join('')}</g>` : '';
     return `<ellipse cx="380" cy="598" rx="58" ry="17" fill="#000" opacity=".45"/>
       <rect x="335" y="540" width="90" height="56" fill="url(#twMetal)"/>
       <rect x="335" y="95" width="90" height="450" fill="url(#twMetal)"/>
@@ -7286,7 +7326,9 @@ setInterval(tickChrom, 1500);
       <path d="M335 95 Q380 50 425 95" fill="url(#twMetalH)"/>
       <g stroke="#1E2836" stroke-width="1.2" opacity=".7">${[150,220,290,360,430,500].map(y=>`<path d="M335 ${y} Q380 ${y+12} 425 ${y}"/>`).join('')}</g>
       <path d="M382 118 L425 118 L425 528 L382 528 Z" fill="#0B1220" stroke="#4FC3F7" stroke-width="1.2" stroke-dasharray="4 3"/>
+      ${prof}
       <g stroke="#7E92AD" stroke-width="2">${trays.map(y=>`<path d="M384 ${y}H423"/>`).join('')}</g>
+      ${streams}
       ${r ? `<g fill="#38D9A9" opacity=".75">${trays.map(y=>`<rect x="384" y="${y-4}" width="39" height="4"/>`).join('')}</g>
       <g fill="#B8E8FF" class="tw-bubbles">${trays.slice(0,9).map((y,i)=>`<circle cx="${390+(i*7)%30}" cy="${y+16}" r="1.6"/><circle cx="${404+(i*5)%18}" cy="${y+10}" r="1.4"/>`).join('')}</g>` : ''}
       <rect x="384" y="${528-sumpH}" width="39" height="${sumpH}" fill="url(#twLiq)" opacity=".85"/>
@@ -7296,7 +7338,7 @@ setInterval(tickChrom, 1500);
   function reboiler(reb, tag, tic, botColor){
     const hot = reb.pv > (reb.low ? reb.low*0.7 : 150);
     return `<path d="M335 560 H300 V590" fill="none" stroke="${hot?'#FFB300':'#4E6380'}" stroke-width="3"/>
-      <path d="M335 520 H318 V560" fill="none" stroke="${hot?'#FFCC66':'#4E6380'}" stroke-width="2" stroke-dasharray="3 3"/>
+      <path d="M318 590 V520 H335" fill="none" stroke="${hot?tColor(reb.pv):'#4E6380'}" stroke-width="3" stroke-dasharray="4 3" class="${hot&&run()?'tw-flow':''}"/>
       <ellipse cx="140" cy="590" rx="12" ry="26" fill="#55677F"/>
       <rect x="140" y="564" width="160" height="52" fill="url(#twMetalH)"/>
       <ellipse cx="300" cy="590" rx="12" ry="26" fill="#8FA3BD"/>
@@ -7340,24 +7382,24 @@ setInterval(tickChrom, 1500);
       <!-- columna -->
       <g class="tw-eq" data-tw-eq="columna">
         ${selBox('columna', 318, 52, 124, 590)}
-        ${column(lvlCol, cCol, C.colTag)}
+        ${column(lvlCol, cCol, C.colTag, {top:tTop, bot:reb.pv})}
       </g>
       <!-- alimentación -->
       <g class="tw-eq" data-tw-eq="alimentacion">
         ${selBox('alimentacion', 12, 262, 320, 64)}
-        ${line('M20 300 H335', '#38D9A9', r, 'twArrG')}
+        ${line('M20 300 H335', tColor(tFeed), r, 'twArrG', 4)}
         <text x="20" y="290" fill="#DCE6F2" font-size="12" font-weight="600">desde ${C.feedFrom}</text>
         ${rd(214, 276, f2(tFeed), '°F', '#7FD4FF', 96)}
       </g>
       <!-- vapor de tope y PIC de columna -->
-      ${line('M380 62 V40 H640 V70', '#4FC3F7', r, null, 5)}
+      ${line('M380 62 V40 H640 V70', tColor(tTop), r, null, 5)}
       <g class="tw-eq" data-tw-eq="columna">${ctl(452, 2, 'A', f2(C.colSP), f2(pT), 'psig', cP, 'PIC columna')} ${rd(566, 10, f2(tTop), '°F', cTop, 84)}</g>
       <!-- aero -->
       <g class="tw-eq" data-tw-eq="condensador">
         ${selBox('condensador', 552, 58, 432, 92)}
         ${aero2x2(560, 70, ae, C.aeroTag, f0(ae.pv)+' °F salida')}
       </g>
-      ${line('M745 134 V258', '#38D9A9', r)}
+      ${line('M745 134 V258', tColor(ae.pv), r)}
       <!-- acumulador -->
       <g class="tw-eq" data-tw-eq="acumulador">
         ${selBox('acumulador', 600, 228, 300, 104)}
@@ -7365,13 +7407,13 @@ setInterval(tickChrom, 1500);
         ${rd(858, 266, f1(lvlAcc), '%', cAcc, 64)}
       </g>
       <!-- bombas -->
-      ${line('M740 322 V366 H690 V400 M740 366 H800 V400', '#38D9A9', pOn)}
+      ${line('M740 322 V366 H690 V400 M740 366 H800 V400', tColor(tRet), pOn)}
       <g class="tw-eq" data-tw-eq="bombas">
         ${selBox('bombas', 610, 392, 236, 86)}
         ${pump(690, 420, pA, 'A')}${pump(800, 420, pB, 'B')}
       </g>
       <!-- reflujo con FIC -->
-      ${line('M674 420 H560 V180 H425', '#38D9A9', reflux>1, 'twArrG')}
+      ${line('M674 420 H560 V180 H425', tColor(tRet), reflux>1, 'twArrG', 4)}
       <g class="tw-eq" data-tw-eq="reflujo">
         ${selBox('reflujo', 438, 150, 240, 126)}
         ${valve(560, 232, Math.min(1,ficSP/C.ficNom), '')}
@@ -7380,7 +7422,7 @@ setInterval(tickChrom, 1500);
         ${rd(440, 158, f2(tRet), '°F', '#7FD4FF', 90)}
       </g>
       <!-- producto -->
-      ${line('M816 420 H860 V470 H975', '#38D9A9', prod>0.3, 'twArrG')}
+      ${line('M816 420 H860 V470 H975', tColor(C.prodTemp?C.prodTemp():tRet), prod>0.3, 'twArrG')}
       <g class="tw-eq" data-tw-eq="producto">
         ${selBox('producto', 856, 440, 136, 104)}
         <text x="975" y="462" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">${C.prodLabel}</text>
@@ -7396,12 +7438,13 @@ setInterval(tickChrom, 1500);
       <g class="tw-eq" data-tw-eq="fondo">
         ${selBox('fondo', 430, 456, 548, 220)}
         ${ctl(440, 478, 'A', f2(vs.sp), f2(lvlCol), '%', cCol, 'LIC columna')}
-        ${line('M380 598 V650 H975', '#38D9A9', bot>0.3, 'twArrG')}
+        ${line('M380 598 V650 H975', tColor(r?tBotOut:60), bot>0.3, 'twArrG', 4)}
         ${valve(760, 650, bot>0.3?1:0, 'NC')}
         ${rd(620, 600, f2(r?tBotOut:60), '°F', '#FFB300', 96)}
         ${C.botCtl ? ctl(450, 560, C.botCtl.mode, f2(C.botCtl.sp), f2(bot), 'USGPM', '#38D9A9', C.botCtl.tag) : rd(860, 600, f2(bot), 'USGPM', '#38D9A9', 112)}
         <text x="975" y="640" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">${C.botLabel}</text>
       </g>
+      ${tLegend(620, 565, Math.min(tTop, tRet), Math.max(reb.pv, V('hotOilTemp')))}
     </svg>`;
   }
 
@@ -7420,26 +7463,26 @@ setInterval(tickChrom, 1500);
     return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Deetanizador en isométrico">${DEFS}${FLOOR}
       <!-- tope a D21.0306 -->
       <g class="tw-eq" data-tw-eq="columna">
-        ${line('M380 62 V40 H30', '#9AD8FF', r, 'twArrS', 4)}
+        ${line('M380 62 V40 H30', tColor(tTop), r, 'twArrS', 5)}
         <text x="34" y="30" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0306</text>
         ${rd(150, 10, f2(pT), 'psig', cP, 96)} ${rd(254, 10, f2(tTop), '°F', cTop, 84)}
       </g>
       <!-- entradas por la izquierda -->
       <g class="tw-eq" data-tw-eq="alimentacion">
         ${selBox('alimentacion', 12, 96, 326, 226)}
-        ${line('M30 120 H335', '#38D9A9', reflux>1, 'twArrG')}
+        ${line('M30 120 H335', tColor(V('d210306OutTemp')), reflux>1, 'twArrG', 4)}
         <text x="34" y="112" fill="#DCE6F2" font-size="12" font-weight="600">desde D31.0302 (reflujo)</text>
-        ${line('M30 220 H335', '#38D9A9', r, 'twArrG')}
+        ${line('M30 220 H335', tColor(t0304), r, 'twArrG', 4)}
         <text x="34" y="212" fill="#DCE6F2" font-size="12" font-weight="600">desde D21.0304</text>
         ${rd(236, 190, f2(t0304), '°F', '#7FD4FF', 92)}
-        ${line('M30 300 H335', '#38D9A9', r, 'twArrG')}
+        ${line('M30 300 H335', tColor(t0303), r, 'twArrG', 4)}
         <text x="34" y="292" fill="#DCE6F2" font-size="12" font-weight="600">desde D21.0303</text>
         ${rd(236, 270, f2(t0303), '°F', '#7FD4FF', 92)}
       </g>
       <!-- columna -->
       <g class="tw-eq" data-tw-eq="columna">
         ${selBox('columna', 318, 52, 124, 590)}
-        ${column(lvl, cLvl, 'D81.0302')}
+        ${column(lvl, cLvl, 'D81.0302', {top:tTop, bot:reb.pv})}
       </g>
       <!-- perfil a la derecha + ΔP -->
       <g class="tw-eq" data-tw-eq="columna">
@@ -7460,11 +7503,12 @@ setInterval(tickChrom, 1500);
       <g class="tw-eq" data-tw-eq="fondo">
         ${selBox('fondo', 600, 420, 386, 252)}
         ${ctl(700, 440, 'A', f2(vs.sp), f2(lvl), '%', cLvl, 'LIC-0302B')}
-        ${line('M380 598 V650 H975', '#38D9A9', r && lvl>3, 'twArrG')}
+        ${line('M380 598 V650 H975', tColor(tBot), r && lvl>3, 'twArrG', 4)}
         ${valve(752, 650, (r && lvl>3)?Math.min(1,lvl/vs.sp*0.6):0, 'NC')}
         <path d="M752 630 V478" stroke="#5E6E85" stroke-dasharray="3 3"/>
         <text x="975" y="640" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">a Depropanizador</text>
       </g>
+      ${tLegend(790, 560, Math.min(tTop, V('d210306OutTemp')), Math.max(reb.pv, V('hotOilTemp')))}
     </svg>`;
   }
 
@@ -7774,8 +7818,8 @@ setInterval(tickChrom, 1500);
         ${line('M60 350 H20', '#FFCC66', r, 'twArrG', 4)}
         <text x="24" y="342" fill="#DCE6F2" font-size="12" font-weight="600">Recomp.</text>
         ${line('M240 320 H260 V508', '#FFCC66', r, null, 2)}
-        ${valve(260, 420, r?0.6:0, 'NO', true)}
-        ${ctl(140, 440, 'A', '60.000', r?'59.745':'0.000', '%', '#7FD4FF', 'Recirculación')}
+        ${valve(260, 420, state.boosterRecyclePV/100, 'NO', true)}
+        ${ctl(140, 440, 'A', f2(state.boosterRecycleSP), f2(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&r?'#FF6B6B':'#7FD4FF', 'Recirculación')}
         ${line('M120 508 V560 H20', '#4FC3F7', pB>300, 'twArrB', 3)}
         ${valve(90, 560, pB>300?0.6:0, 'NC')}
         <text x="24" y="584" fill="#8A9BB3" font-size="11">Venteo</text>
@@ -7907,7 +7951,7 @@ setInterval(tickChrom, 1500);
   /* ---------- PANEL: valores y controles ---------- */
   function cryoEq(C){
     if(C.kind==='hx') return { hx301a:{title:'D21.0301A · Gas/Gas'}, hx301b:{title:'D21.0301B · Gas/Gas'}, hx303:{title:'D21.0303 · Caja fría'}, hx304:{title:'D21.0304'}, hx308:{title:'D21.0308 · Hot Oil'} };
-    if(C.kind==='exp') return { expansor:{title:'Turboexpansor / Booster · SIC-0301'}, jt:{title:'PIC-0301 · PV-0301 (JT)'}, d820301:{title:'D82.0301 · Tambor de succión'}, booster:{title:'Booster · succión y recirculación'}, aero:{title:'TI-0102 · Aero booster'} };
+    if(C.kind==='exp') return { expansor:{title:'Turboexpansor / Booster · SIC-0301'}, jt:{title:'PIC-0301 · PV-0301 (JT)'}, d820301:{title:'D82.0301 · Tambor de succión'}, booster:{title:'Booster · recirculación (antisurge)'}, aero:{title:'TI-0102 · Aero booster'} };
     if(C.kind==='rc') return { rc4:{title:'Rc4 · Recompresor 1'}, rc7:{title:'Rc7 · Recompresor 2'}, rc8:{title:'Rc8 · Recompresor 3'}, rc9:{title:'Rc9 · XA0307'}, aero:{title:'TIC-0102 · Aero succión'}, succion:{title:'Control de succión · PI0306'} };
     return { columna:{title:'D81.0301 · Recontactor'}, pic:{title:'PIC-0305 · Presión'}, hx305:{title:'D21.0305 · Condensador'}, bombas:{title:'P-0301 A/B · Bombas'}, fondo:{title:'FIC-0301 / LIC-0301 · Fondo'}, rpm:{title:'Velocidad recompresores'} };
   }
@@ -7923,7 +7967,7 @@ setInterval(tickChrom, 1500);
       if(s==='expansor') return kpi('RPM PV', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('RPM SP', f0(state.expRpmSP), 'rpm', '#FFB300') + kpi('Descarga', f1(V('tempExpansorOut')), '°F', zc('tempExpansorOut',V('tempExpansorOut'),'#9AD8FF')) + kpi('Entrada', f0(V('psigExpansor')), 'psig');
       if(s==='jt') return kpi('PV-0301', f0(state.recircOpen), '% abierta', state.recircOpen>0?'#FFCC66':'#33D69F') + kpi('Presión entrada', f0(V('psigExpansor')), 'psig', zc('psigExpansor',V('psigExpansor')));
       if(s==='d820301') return kpi('Nivel', f1(V('lvlD820301')), '%', zc('lvlD820301',V('lvlD820301'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820301.sp), '%', '#FFB300') + kpi('Temp. tope', f1(V('expInTemp')), '°F', '#9AD8FF');
-      if(s==='booster') return kpi('Succión booster', f0(V('boosterPSIG')), 'psig', zc('boosterPSIG',V('boosterPSIG'))) + kpi('SP venteo', '300', 'psig', '#FFB300');
+      if(s==='booster') return kpi('Recirculación SP', f1(state.boosterRecycleSP), '%', '#FFB300') + kpi('Recirculación PV', f1(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&run()?'#FF6B6B':'#7FD4FF') + kpi('Succión booster', f0(V('boosterPSIG')), 'psig', zc('boosterPSIG',V('boosterPSIG'))) + kpi('A recompresores', f0(V('rcSuccPSIG')), 'psig');
       if(s==='aero') return aeroVals('booster');
     }
     if(C.kind==='rc'){
@@ -7953,7 +7997,11 @@ setInterval(tickChrom, 1500);
       if(s==='jt') return `<div class="tw-ctl-title">PV-0301 · válvula JT</div>` + step('jt', f0(state.recircOpen), '%', '−10', '+10', `<div class="tw-note">0% = todo el gas por el expansor (máximo frío). La JT es el respaldo: si el turbo baja de 3000 RPM, abre sola.</div>`);
       if(s==='d820301') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820301">Faceplate LIC-0301</button><button type="button" class="tw-btn" data-tw-act="slug">Simular bache (+15%)</button>`;
       if(s==='aero') return aeroCtls('booster');
-      if(s==='booster') return `<div class="tw-note">La succión del booster sigue al SP del Recontactor. Si pasa 300 psig, abre el venteo.</div>`;
+      if(s==='booster') return `<div class="tw-ctl-title">Recirculación del booster (antisurge)</div>
+        <div class="tw-stepv" style="min-height:40px">SP ${f1(state.boosterRecycleSP)} %</div>
+        <div class="tw-grid4">${[-10,-1,1,10].map(d=>`<button type="button" class="tw-btn" data-tw-act="brec" data-d="${d}">${d>0?'+':'−'}${Math.abs(d)}%</button>`).join('')}</div>
+        <div class="tw-step"><input type="number" class="tw-in" id="tw-in-brec" min="0" max="100" step="1" value="${f0(state.boosterRecycleSP)}" aria-label="Recirculación en %"><button type="button" class="tw-btn" data-tw-act="brecset">Aplicar %</button></div>
+        <div class="tw-note">Más recirculación protege al booster pero lo carga: baja la velocidad del turbo (menos frío) y la presión que entrega a los recompresores. Menos de 30% con carga alta = riesgo de bombeo. Normal: 60%.</div>`;
     }
     if(C.kind==='rc'){
       if(s==='aero') return aeroCtls('recomp');
@@ -7975,6 +8023,11 @@ setInterval(tickChrom, 1500);
   function cryoAct(a, btn){
     const d = +btn.dataset.d;
     if(a==='exprpm'){ state.expRpmSP = Math.max(20000, Math.min(45000, state.expRpmSP + d*1000)); addLog(`Setpoint velocidad expansor a ${state.expRpmSP} rpm`, 'info'); return true; }
+    if(a==='brec' || a==='brecset'){
+      if(a==='brecset'){ const v = parseFloat(($('tw-in-brec')||{}).value); if(isNaN(v)) return true; state.boosterRecycleSP = Math.max(0, Math.min(100, v)); }
+      else state.boosterRecycleSP = Math.max(0, Math.min(100, state.boosterRecycleSP + d));
+      addLog(`Recirculación del booster ajustada a ${state.boosterRecycleSP.toFixed(0)}%`, 'info'); return true;
+    }
     if(a==='jt'){ state.recircOpen = Math.max(0, Math.min(100, state.recircOpen + d*10)); addLog(`Válvula PV-0301 ajustada a ${state.recircOpen}%`, 'info'); return true; }
     if(a==='slug'){ state.vessels.lvlD820301.pv = Math.min(95, state.vessels.lvlD820301.pv + 15); addLog('Ingreso de bache simulado en D82.0301.', 'info'); return true; }
     if(a==='rcrpm'){ state.rcRpmSP = Math.max(600, Math.min(1050, state.rcRpmSP + d*20)); addLog(`Setpoint velocidad recompresores ajustado a ${state.rcRpmSP} rpm`, 'info'); return true; }
