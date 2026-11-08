@@ -8951,10 +8951,16 @@ setInterval(tickChrom, 1500);
 <div id="upd-bar" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99999;background:#16324F;color:#E3F2FD;border:1px solid #4FC3F7;border-radius:8px;padding:10px 14px;font:600 13px Inter,system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)">Hay una versión nueva del simulador <button id="upd-btn" style="margin-left:10px;background:#4FC3F7;color:#0B1220;border:0;border-radius:6px;padding:6px 10px;font-weight:700;cursor:pointer">Actualizar</button></div>
 <script>
 if('serviceWorker' in navigator && location.protocol!=='file:'){
-  navigator.serviceWorker.register('sw.js').then(reg=>{
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{
     const show=w=>{const b=document.getElementById('upd-bar');b.style.display='block';document.getElementById('upd-btn').onclick=()=>w.postMessage('skip');};
     if(reg.waiting && navigator.serviceWorker.controller) show(reg.waiting);
     reg.addEventListener('updatefound',()=>{const w=reg.installing;w.addEventListener('statechange',()=>{if(w.state==='installed'&&navigator.serviceWorker.controller)show(w);});});
+    // buscar versión nueva sin tener que recargar: cada 5 min y al volver a la ventana
+    const check=()=>{ if(navigator.onLine) reg.update().catch(()=>{}); };
+    setInterval(check, 5*60*1000);
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') check(); });
+    window.addEventListener('focus', check);
+    window.addEventListener('online', check);
   });
   let r=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!r){r=true;location.reload();}});
 }
