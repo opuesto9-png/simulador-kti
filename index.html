@@ -1599,6 +1599,23 @@
 .tw-meta{margin-left:auto;color:#6F819B}
 .tw-flame{animation:twFlicker .5s ease-in-out infinite alternate;transform-origin:center bottom;transform-box:fill-box}
 @keyframes twFlicker{from{opacity:.75;transform:scaleY(.92)}to{opacity:1;transform:scaleY(1.06)}}
+.tw-dock{background:#0D1422;padding:10px 18px;display:flex;flex-direction:column;gap:8px}
+#tw-dock-top{border-bottom:1px solid #1C2738}
+#tw-dock-bot{border-top:1px solid #1C2738}
+.tw-dock .dcs-master{margin:0}
+.tw-capbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#tw-capname{font:12px 'JetBrains Mono',monospace;color:#8A9BB3}
+.tw-dock .ref-image-wrap img{max-width:100%;border-radius:6px;border:1px solid #24364F}
+.tw-fold{background:#0F1A2B;border:1px solid #1C2738;border-radius:8px;padding:0 12px}
+.tw-fold>summary{cursor:pointer;padding:10px 2px;font:600 13px Inter,system-ui,sans-serif;color:#DCE6F2;list-style:none}
+.tw-fold>summary::before{content:'▸ ';color:#4FC3F7}
+.tw-fold[open]>summary::before{content:'▾ '}
+.tw-fold[open]{padding-bottom:12px}
+.tw-dock .valve-tag,.tw-dock .valve-tag span{color:#C3CFDE !important}
+.tw-dock .dcs-panel-box .lbl{color:#A9B8CC !important}
+.tw-dock .load-val,.tw-dock #load-pct{color:#DCE6F2 !important}
+.tw-dock #esd-pill{color:#FF8A8A !important}
+
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -8726,6 +8743,7 @@ setInterval(tickChrom, 1500);
   }
   function renderScene(){
     const box = $('tw-svg'); if(!box) return;
+    if(window.twinOnArea && twin._lastArea !== twin.area){ twin._lastArea = twin.area; window.twinOnArea(twin.area); }
     const a = AREAS.find(x=>x.id===twin.area);
     if(!READY[twin.area]){
       $('tw-title').textContent = a ? a.label : '';
@@ -8877,7 +8895,7 @@ setInterval(tickChrom, 1500);
   function renderFoot(){
     const el = $('tw-foot'); if(!el) return;
     const al = (typeof log!=='undefined' ? log : []).filter(l=>l.kind==='alarm').slice(0,3);
-    el.innerHTML = (al.length ? al.map(l=>`<span class="tw-al">${esc(l.time)} · ${esc(l.msg)}</span>`).join('') : '<span class="tw-ok">Sin alarmas recientes</span>')
+    el.innerHTML = (window.twinOnArea ? '' : (al.length ? al.map(l=>`<span class="tw-al">${esc(l.time)} · ${esc(l.msg)}</span>`).join('') : '<span class="tw-ok">Sin alarmas recientes</span>'))
       + `<span class="tw-meta">${state.esdActive?'<b style="color:#FF6B6B">ESD ACTIVO</b> · ':''}Carga ${f0((state.loadSmooth||0)*100)}% · ${f1(state.ambientTemp)} °C</span>`;
   }
 
@@ -8945,6 +8963,77 @@ setInterval(tickChrom, 1500);
   }, 1000);
 
   document.querySelector('[data-tab="twin"]')?.addEventListener('click', ()=>{ renderShell(); });
+  // ir a una pantalla del gemelo desde otras solapas (alarmas, procedimientos, emergencias)
+  window.twinGoto = (areaId) => {
+    const ar = AREAS.find(x=>x.id===areaId); if(!ar) return;
+    twin.area = areaId; twin.zone = ar.sec; twin.sel = defSel(); renderShell();
+  };
+})();
+
+</script>
+<script>
+/* =========================================================================
+   GEMELO 3D COMO VISTA OFICIAL
+   El Panel de Control clásico queda oculto (su código sigue funcionando por
+   dentro). Sus piezas útiles se mueven al Gemelo 3D tal cual, con sus
+   eventos y actualizaciones originales.
+   ========================================================================= */
+(function(){
+  const view = document.getElementById('view-twin');
+  const root = document.getElementById('twin-root');
+  if(!view || !root) return;
+
+  // contenedores fijos arriba y abajo del gemelo (no se borran al cambiar de pantalla)
+  const top = document.createElement('div'); top.id = 'tw-dock-top'; top.className = 'tw-dock';
+  const bot = document.createElement('div'); bot.id = 'tw-dock-bot'; bot.className = 'tw-dock';
+  view.insertBefore(top, root); view.appendChild(bot);
+
+  const mv = (sel, to) => { const el = document.querySelector(sel); if(el) to.appendChild(el); return el; };
+
+  // 1) barra de alarmas (ver alarmas · guía de acción · reconocer)
+  mv('#dcs-alarm-banner', top);
+  // 2) válvulas de ingreso + carga de planta + ESD
+  const master = mv('.dcs-master', top);
+  // 3) captura real del DCS
+  const capBar = document.createElement('div'); capBar.className = 'tw-capbar';
+  top.appendChild(capBar);
+  mv('#ref-toggle', capBar);
+  const capName = document.createElement('span'); capName.id = 'tw-capname'; capBar.appendChild(capName);
+  mv('#ref-image-wrap', top);
+
+  // 4) todas las variables de la pantalla y 5) registro de eventos (desplegables)
+  const vars = document.createElement('details'); vars.className = 'tw-fold';
+  vars.innerHTML = '<summary>Todas las variables de esta pantalla</summary>';
+  bot.appendChild(vars); mv('#area-gauges', vars);
+  const logD = document.createElement('details'); logD.className = 'tw-fold';
+  logD.innerHTML = '<summary>Registro de eventos</summary>';
+  bot.appendChild(logD); mv('.log-panel', logD);
+
+  // sincronizar la pantalla del gemelo con la del simulador (captura, variables)
+  window.twinOnArea = (areaId) => {
+    currentSection = 'all'; currentArea = areaId;
+    try{ renderAreaGauges(); }catch(e){}
+    const img = document.getElementById('ref-image');
+    if(img && REF_IMAGES[areaId]) img.src = REF_IMAGES[areaId];
+    const a = AREAS.find(x=>x.id===areaId);
+    capName.textContent = a ? 'Pantalla DCS: ' + (a.dcsTitle || a.label) : '';
+  };
+
+  // 6) los saltos desde otras solapas abren el gemelo
+  jumpToArea = function(areaId){
+    switchMainTab('twin');
+    if(window.twinGoto) window.twinGoto(areaId);
+    try{ tickVisualsOnly(); }catch(e){}
+  };
+
+  // ocultar la solapa clásica y abrir el gemelo de entrada
+  const oldTab = document.querySelector('.tab-btn[data-tab="panel"]');
+  const badge = document.getElementById('nav-alm-badge');
+  const twTab = document.querySelector('.tab-btn[data-tab="twin"]');
+  if(twTab && badge){ twTab.appendChild(badge); }
+  if(oldTab) oldTab.style.display = 'none';
+  switchMainTab('twin');
+  if(window.twinGoto) window.twinGoto('sep_entrada');
 })();
 
 </script>
