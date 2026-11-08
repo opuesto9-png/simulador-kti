@@ -1,5 +1,5 @@
 // Simulador KTI - service worker. Subí VERSION en cada actualización.
-const VERSION = 'kti-sim-v15';
+const VERSION = 'kti-sim-v16';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest',
   './icon-192.png', './icon-512.png',

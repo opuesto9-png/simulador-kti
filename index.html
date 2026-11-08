@@ -1616,6 +1616,9 @@
 .tw-dock .load-val,.tw-dock #load-pct{color:#DCE6F2 !important}
 .tw-dock #esd-pill{color:#FF8A8A !important}
 
+.tw-svgbtn{cursor:pointer}
+.tw-svgbtn:hover rect{filter:brightness(1.4)}
+.tw-btn-sel{outline:2px solid #4FC3F7;outline-offset:1px}
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -8051,6 +8054,10 @@ setInterval(tickChrom, 1500);
         <g class="${on?'tw-fan':''}" style="transform-origin:515px ${y+20}px"><path d="M515 ${y+20} l14 -1 M515 ${y+20} l-12 3" stroke="${on?'#7FD4FF':'#4E6380'}" stroke-width="2.5" stroke-linecap="round"/></g>
         ${line(`M560 ${y} H640`, '#FFCC66', on && r, null, 3)}
         ${k==='mc6' && !on ? `<path d="M362 ${y+10} l8 -14 l8 14 z" fill="#FFCC66" stroke="#0A0F18"/>` : ''}
+        <g class="tw-svgbtn" data-tw-act="mc" data-k="${k}" role="button" aria-label="${on?'Detener':'Arrancar'} ${tag}">
+          <rect x="574" y="${y-38}" width="62" height="24" rx="5" fill="${on?'#0E2A22':'#2A1416'}" stroke="${on?'#33D69F':'#FF6B6B'}" stroke-width="1.5"/>
+          <text x="605" y="${y-21}" fill="${on?'#33D69F':'#FF8A8A'}" font-family="${MONO}" font-size="11" font-weight="700" text-anchor="middle">${on?'MARCHA':'STOP'}</text>
+        </g>
       </g>`;
     };
     return `<svg viewBox="0 0 1000 690" class="tw-svgel" role="img" aria-label="Compresión gas de entrada">${DEFS}
@@ -8270,7 +8277,7 @@ setInterval(tickChrom, 1500);
     if(C.kind==='comp'){
       if(s==='aero') return aeroCtls('comp');
       if(s==='succion') return `<div class="tw-note">Sin al menos una válvula de entrada abierta (V-101/102/103) los compresores no arrancan: interlock de baja succión.</div>`;
-      const one = s.startsWith('mc') ? `<div class="tw-ctl-title">Arranque / parada</div><div class="tw-grid2"><button type="button" class="tw-btn ${state.compressors[s]?'on':''}" data-tw-act="mc" data-k="${s}">${s.toUpperCase()}<br><small>${state.compressors[s]?'MARCHA':'STOP'}</small></button></div>` : trend;
+      const one = `<div class="tw-ctl-title">Moto-compresores · tocá para arrancar o parar</div><div class="tw-grid2">${MCL.map(([k,t])=>`<button type="button" class="tw-btn ${state.compressors[k]?'on':''} ${k===s?'tw-btn-sel':''}" data-tw-act="mc" data-k="${k}">${t}<br><small>${k.toUpperCase()} · ${state.compressors[k]?'MARCHA':'STOP'}</small></button>`).join('')}</div>` + (s.startsWith('mc') ? '' : trend);
       return one + `<div class="tw-grid2"><button type="button" class="tw-btn" data-tw-act="mc4">Arrancar 4</button><button type="button" class="tw-btn" data-tw-act="mc5">Arrancar 5</button></div><button type="button" class="tw-btn" data-tw-act="mcstop">Detener todos</button>
         <div class="tw-ctl-title">Velocidad (SP común)</div>` + step('mcrpm', f0(state.mcRpmSP), 'rpm', '−20', '+20');
     }
