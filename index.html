@@ -2219,7 +2219,7 @@ function applyColdResetPreset(){
   state.mcRpmSP = 700;
   RC_KEYS.forEach(k=>state.recompressors[k]=false);
   state.rcRpmSP = 600;
-  state.recircOpen = 100; state.expRpmSP = 20000; state.recontactorSP = 238;
+  state.recircOpen = 0; state.expRpmSP = 20000; state.recontactorSP = 238;
   state.boosterRecycleSP = 100; state.boosterRecyclePV = 100;   // antisurge del booster abierta en frío
   state.filterMode = 'A'; state.vals.filtrosPSID = 0.8; state.vals.filtrosBPSID = 0.5;
   state.towerMode = 'MANUAL'; state.manualTowerStep = 'ADSORCION'; state.sieveSaturation = 0.12; state.h2oPpm = 0.35;
@@ -2318,7 +2318,7 @@ document.getElementById('esd-btn').addEventListener('click',()=>{
     RC_KEYS.forEach(k=>state.recompressors[k]=false);
     Object.keys(state.hotOilPumps).forEach(k=>state.hotOilPumps[k]=false);
     state.hornoA=false; state.hornoB=false; state.hornoBManual=false;
-    state.recircOpen = 100;
+    state.boosterRecycleSP = 100;   // FIC0301 es NO: abre con la ESD
     Object.keys(state.pumps).forEach(k=>state.pumps[k].on=false);
     state.reboilers.deet.sp = state.reboilers.deet.min;
     state.reboilers.depro.sp = state.reboilers.depro.min;
@@ -2326,7 +2326,7 @@ document.getElementById('esd-btn').addEventListener('click',()=>{
     Object.keys(state.valves).forEach(v=>state.valves[v]=false);
     renderValveStrip();
     document.getElementById('esd-btn').style.background = 'radial-gradient(circle at 35% 30%, #666, #333)';
-    addLog('⚠ PARADA DE EMERGENCIA (ESD) ACTIVADA. Válvulas cerradas, PV-0301 fail-open (100%), compresores, bombas y hornos detenidos.','alarm');
+    addLog('⚠ PARADA DE EMERGENCIA (ESD) ACTIVADA. Válvulas cerradas, JT PIC0301A y recirculación FIC0301 abiertas, compresores, bombas y hornos detenidos.','alarm');
   } else {
     state.esdActive = false;
     state.recircOpen = 0;
@@ -4866,7 +4866,7 @@ function stepPhysics(){
   const recompRunning = RC_KEYS.filter(k=>state.recompressors[k]).length;
   const recompCapacity = recompRunning / RC_KEYS.length;
   const recompFactor = 0.25 + 0.75*recompCapacity;
-  const recircFactor = 1 - (state.recircOpen/100)*0.90;
+  const recircFactor = 1;   // ya no hay recirculación aparte: la única es FIC0301 (booster)
 
   // Turboexpansor RPM
   // Recirculación (antisurge) del booster: más recirculación carga al booster y frena al turbo
@@ -4893,11 +4893,10 @@ function stepPhysics(){
 
   // Recontactor pressure PIC-0305
   // Cerrar la recirculación del turbo/booster manda más gas por el expansor: se "infla" la entrada del Recontactor
-  //  · recirculación del booster (antisurge, normal 60%): ~0.4 psig por cada % que se cierra
-  //  · PV-0301 recirculación del turbo (deriva gas antes del expansor a recompresores): abrirla desinfla el Recontactor
-  const recInflate = load>0.03 ? (0.4 * (60 - state.boosterRecyclePV) - 0.35 * state.recircOpen) * Math.min(1, load) : 0;
+  //  · FIC0301 recirculación del booster (entrada↔salida, normal SP 60%): cerrarla sube Recontactor y descarga booster
+  const recInflate = load>0.03 ? (0.8 * (60 - state.boosterRecyclePV)) * Math.min(1, load) : 0;   // FIC0301: ~0.8 psig por cada % que se cierra
   const recontactorTarget = state.esdActive ? 232 : (load>0.03 ? state.recontactorSP + 6 + recInflate : 238);
-  state.vals.recontactorPV = state.vals.recontactorPV*0.92 + recontactorTarget*0.08 + n(0.5);
+  state.vals.recontactorPV = state.vals.recontactorPV*0.85 + recontactorTarget*0.15 + n(0.5);
 
   /* ---- DINÁMICA DE AEROENFRIADORES FUNCIONALES ---- */
   Object.keys(state.aeros).forEach(k=>{
@@ -5177,7 +5176,7 @@ function stepPhysics(){
     expSuctionTemp: cryoMix(-31.21 * cryoEff + n(0.3), 65),
     psigExpansor: mcRunning>0 ? (823.0 * (0.88 + 0.12*load) + n(2.0)) : 180,
     expRpm: state.vals.expRpmPV,
-    boosterPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + 15*((state.boosterRecyclePV-60)/100) + n(1.0)) : 120,
+    boosterPSIG: load>0.03 ? (258.0 + (state.vals.recontactorPV - 268) + n(0.8)) : 120,   // PIC0302: sigue al Recontactor (misma línea de salida del booster)
     boosterSuctionPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + n(1.0)) : 120,
     tempExpansorOut: tempExpOut,
     aeroBoosterTemp: state.aeros.booster.pv,
@@ -6798,7 +6797,7 @@ const PROCS = {
     {text:'Confirmar presión estable en separador de salida D21.3101 (>800 psig)', hint:'Garantiza flujo presurizado hacia filtración y deshidratación.', area:'sep_salida_comp', check:()=>(state.lastV.psigGas001||0)>800},
     {text:'Verificar torres deshidratadoras A/B/C en secuencia MODO AUTO', hint:'Asegura secado continuo (<1 ppm H₂O) antes de enfriar en caja fría.', area:'torres_desh', check:()=>state.towerMode==='AUTO' && state.loadSmooth>0.2},
     {text:'Encender el Horno líder de Hot Oil D24.1101A (>420 °F)', hint:'Aporta el calor requerido por regeneración y reboilers de fraccionamiento.', area:'horno_a', check:()=>state.hornoA && state.vals.hotOilTemp>420},
-    {text:'Alinear el Expansor D82.0301 (PV-0301 ≤ 20%) y arrancar Recompresores Rc', hint:'Genera frío criogénico para condensar NGL y recomprime el gas residual.', area:'recompresores', check:()=>RC_KEYS.some(k=>state.recompressors[k]) && state.recircOpen<=20},
+    {text:'Alinear el Expansor D82.0301 (FIC0301 recirculación ~60%) y arrancar Recompresores Rc', hint:'Genera frío criogénico para condensar NGL y recomprime el gas residual.', area:'recompresores', check:()=>RC_KEYS.some(k=>state.recompressors[k])},
     {text:'Ajustar setpoints nominales en reboilers D21.0307, D21.0501 y D21.0502', hint:'Deetanizador ~198 °F, Depropanizador ~268 °F y Debutanizador ~248 °F.', area:'depropanizador', check:()=>state.reboilers.deet.sp>=175 && state.reboilers.depro.sp>=245 && state.reboilers.debu.sp>=225},
     {text:'Estabilizar Recontactor D81.0301 y habilitar bombas de despacho/reflujo', hint:'Mantiene niveles de acumuladores y envía Propano, Butano y Gasolina a tanques.', area:'medicion_almacen', check:()=>state.pumps.depro.on && state.pumps.debuTope.on && state.pumps.debuFondo.on},
     {text:'Confirmar Dew Point del gas de venta en especificación (≤ -45 °C)', hint:'Verificación final de calidad comercial en DewSolver PM_351.', area:'entrada_salida_planta', check:()=>state.loadSmooth>0.3 && state.lastDewPoint<=-45}
@@ -7796,31 +7795,24 @@ setInterval(tickChrom, 1500);
       <g class="tw-eq" data-tw-eq="d820301">
         ${selBox('d820301', 180, 40, 290, 230)}
         ${vDrum(400, 70, 70, 150, lvl, 'D82.0301', cL)}
-        ${ctl(200, 110, 'A', f1(vs.sp), f1(lvl), '%', cL, 'LIC-0301')}
+        ${ctl(200, 110, 'A', f1(vs.sp), f1(lvl), '%', cL, 'LIC0301')}
         ${line('M435 225 V242 H360 V166 H20', '#38D9A9', r && lvl>vs.sp, 'twArrG', 3)}
         ${valve(330, 166, (r && lvl>vs.sp)?0.6:0, 'NC')}
         <text x="24" y="158" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0303</text>
       </g>
       <!-- gas a expansor con PIC y JT -->
       ${line('M470 80 H680 V466', '#9AD8FF', r, null, 4)}
-      ${rd(500, 56, f2(tIn), '°F', zc('expInTemp',tIn,'#9AD8FF'), 92)}
+      ${rd(490, 56, f2(tIn), 'TI0314 °F', zc('expInTemp',tIn,'#9AD8FF'), 140)}
       <g class="tw-eq" data-tw-eq="jt">
         ${selBox('jt', 690, 76, 300, 250)}
-        ${ctl(720, 90, 'A', '824', f0(pIn), 'psig', cP, 'PIC-0301')}
-        ${ctl(720, 160, 'A', '840', f0(pIn), 'psig', cP, 'PIC')}
+        ${ctl(720, 90, 'A', '824', f0(pIn), 'psig', cP, 'PIC0301B')}
+        ${ctl(720, 160, 'A', '840', f0(pIn), 'psig', cP, 'PIC0301A')}
         ${line('M680 240 H800 V560', '#9AD8FF', jt>5 && r, null, 3)}
         ${valve(800, 260, jt/100, 'NC', true)}
-        ${rd(830, 290, f0(jt)+' % · AUTO', 'JT PV-0301', jt>5?'#FFCC66':'#33D69F', 154)}
+        ${rd(815, 290, f0(jt)+' % AUTO', 'JT', jt>5?'#FFCC66':'#33D69F', 175)}
       </g>
       ${valve(680, 330, spin?1:0, '', true)}
-      <!-- recirculación del turbo: deriva gas antes del expansor hacia recompresores -->
-      <g class="tw-eq" data-tw-eq="recirc">
-        ${selBox('recirc', 690, 336, 300, 52)}
-        ${line('M680 370 H975', '#9AD8FF', r && rec>0, 'twArrS', 3)}
-        ${valve(860, 370, rec/100, '')}
-        <text x="985" y="358" fill="#DCE6F2" font-size="11" text-anchor="end">a Recompresores</text>
-        ${rd(706, 344, f0(rec)+' %', 'Recirc. turbo', rec>0?'#FFCC66':'#7FD4FF', 140)}
-      </g>
+      <text x="604" y="352" fill="#8A9BB3" font-size="11" text-anchor="end">HIC0302A</text>
       <!-- eje booster / expansor (en corte) -->
       <g class="tw-eq" data-tw-eq="expansor">
         ${selBox('expansor', 396, 384, 404, 290)}
@@ -7855,33 +7847,33 @@ setInterval(tickChrom, 1500);
         <text x="485" y="596" fill="#FFCC66" font-size="12" text-anchor="middle" font-weight="700">BOOSTER</text>
         <text x="690" y="596" fill="#9AD8FF" font-size="12" text-anchor="middle" font-weight="700">EXPANSOR</text>
         <text x="590" y="612" fill="${spin?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="12" text-anchor="middle" font-weight="700">${f0(rpm)} RPM</text>
-        ${ctl(538, 410, 'A', f0(state.expRpmSP), f0(rpm), 'RPM', cR, 'SIC-0301')}
+        ${ctl(538, 410, 'A', f0(state.expRpmSP), f0(rpm), 'RPM', cR, 'SIC0303B')}
       </g>
       <!-- descarga expansor a Recontactor -->
       ${line('M744 520 H975', '#9AD8FF', r, 'twArrS', 4)}
       ${line('M800 560 V520', '#9AD8FF', jt>5 && r, null, 3)}
       <text x="985" y="508" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">Recontactor</text>
-      ${rd(880, 540, f0(V('psigRecontactor')), 'psig', '#7FD4FF', 104)} ${rd(880, 568, f2(tOut), '°F', cT, 104)}
+      ${rd(845, 540, f0(V('psigRecontactor')), 'PIC0306 psig', '#7FD4FF', 145)} ${rd(845, 568, f2(tOut), 'TI0326 °F', cT, 145)}
       <!-- booster: succión, aero y recirculación -->
       <g class="tw-eq" data-tw-eq="booster">
         ${selBox('booster', 12, 300, 316, 380)}
         ${line('M20 620 H200 V520 H431', '#FFCC66', r, null, 4)}
         <text x="24" y="612" fill="#DCE6F2" font-size="12" font-weight="600">D31.0301A</text>
-        ${rd(200, 630, f2(warm(80.02)), '°F', '#FFCC66', 92)}
+        ${rd(190, 630, f2(warm(80.02)), 'TI0301 °F', '#FFCC66', 130)}
         ${line('M485 466 V290 H300', '#FFCC66', r, null, 4)}
         ${line('M60 350 H20', '#FFCC66', r, 'twArrG', 4)}
         <text x="24" y="342" fill="#DCE6F2" font-size="12" font-weight="600">Recomp.</text>
         ${line('M240 320 H260 V508', '#FFCC66', r, null, 2)}
         ${valve(260, 420, state.boosterRecyclePV/100, 'NO', true)}
-        ${ctl(140, 440, 'A', f2(state.boosterRecycleSP), f2(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&r?'#FF6B6B':'#7FD4FF', 'Recirculación')}
+        ${ctl(140, 440, 'A', f2(state.boosterRecycleSP), f2(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&r?'#FF6B6B':'#7FD4FF', 'FIC0301')}
         ${line('M120 508 V560 H20', '#4FC3F7', pB>300, 'twArrB', 3)}
         ${valve(90, 560, pB>300?0.6:0, 'NC')}
         <text x="24" y="584" fill="#8A9BB3" font-size="11">Venteo</text>
-        ${ctl(150, 540, 'A', '300', f0(pB), 'psig', cB, 'PIC booster')}
+        ${ctl(150, 540, 'A', '300', f0(pB), 'psig', cB, 'PIC0302')}
       </g>
       <g class="tw-eq" data-tw-eq="aero">
         ${selBox('aero', 20, 186, 330, 116)}
-        ${ctl(500, 300, 'A', f2(ae.sp), f2(ae.pv), '°F', '#FFCC66', 'TIC-0102')}
+        ${ctl(500, 300, 'A', f2(ae.sp), f2(ae.pv), '°F', '#FFCC66', 'TIC0102')}
         ${aero2x2(40, 206, ae, null, '')}
         <text x="60" y="292" fill="#DCE6F2" font-size="12" font-weight="600">TI-0102 <tspan fill="${ae.fans.some(Boolean)?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="11" font-weight="400">${ae.fans.filter(Boolean).length}/4 motores · ${ae.mode}</tspan></text>
       </g>
@@ -8005,7 +7997,7 @@ setInterval(tickChrom, 1500);
   /* ---------- PANEL: valores y controles ---------- */
   function cryoEq(C){
     if(C.kind==='hx') return { hx301a:{title:'D21.0301A · Gas/Gas'}, hx301b:{title:'D21.0301B · Gas/Gas'}, hx303:{title:'D21.0303 · Caja fría'}, hx304:{title:'D21.0304'}, hx308:{title:'D21.0308 · Hot Oil'} };
-    if(C.kind==='exp') return { expansor:{title:'Turboexpansor / Booster · SIC-0301'}, jt:{title:'PV-0301 · JT (automática)'}, recirc:{title:'Recirculación del turbo → recompresores'}, d820301:{title:'D82.0301 · Tambor de succión'}, booster:{title:'Booster · recirculación (antisurge)'}, aero:{title:'TI-0102 · Aero booster'} };
+    if(C.kind==='exp') return { expansor:{title:'Turboexpansor / Booster · SIC0303B'}, booster:{title:'FIC0301 · Recirculación del booster'}, jt:{title:'PIC0301A · JT (automática)'}, d820301:{title:'D82.0301 · LIC0301'}, aero:{title:'TIC0102 · Aero booster'} };
     if(C.kind==='rc') return { rc4:{title:'Rc4 · Recompresor 1'}, rc7:{title:'Rc7 · Recompresor 2'}, rc8:{title:'Rc8 · Recompresor 3'}, rc9:{title:'Rc9 · XA0307'}, aero:{title:'TIC-0102 · Aero succión'}, succion:{title:'Control de succión · PI0306'} };
     return { columna:{title:'D81.0301 · Recontactor'}, pic:{title:'PIC-0305 · Presión'}, hx305:{title:'D21.0305 · Condensador'}, bombas:{title:'P-0301 A/B · Bombas'}, fondo:{title:'FIC-0301 / LIC-0301 · Fondo'}, rpm:{title:'Velocidad recompresores'} };
   }
@@ -8019,10 +8011,9 @@ setInterval(tickChrom, 1500);
     }
     if(C.kind==='exp'){
       if(s==='expansor') return kpi('RPM PV', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('RPM SP', f0(state.expRpmSP), 'rpm', '#FFB300') + kpi('Descarga', f1(V('tempExpansorOut')), '°F', zc('tempExpansorOut',V('tempExpansorOut'),'#9AD8FF')) + kpi('Entrada', f0(V('psigExpansor')), 'psig');
-      if(s==='jt') return kpi('JT PV-0301', f0(state.jtOpen||0), '% abierta', (state.jtOpen||0)>5?'#FFCC66':'#33D69F') + kpi('Modo', 'AUTO', '', '#DCE6F2') + kpi('Turbo', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('Presión entrada', f0(V('psigExpansor')), 'psig', zc('psigExpansor',V('psigExpansor')));
-      if(s==='recirc') return kpi('Recirculación', f0(state.recircOpen), '% abierta', state.recircOpen>0?'#FFCC66':'#33D69F') + kpi('Recontactor', f1(V('psigRecontactor')), 'psig', zc('psigRecontactor',V('psigRecontactor'))) + kpi('Turbo', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('Salida expansor', f1(V('tempExpansorOut')), '°F', '#9AD8FF');
+      if(s==='jt') return kpi('JT PIC0301A', f0(state.jtOpen||0), '% abierta', (state.jtOpen||0)>5?'#FFCC66':'#33D69F') + kpi('Modo', 'AUTO', '', '#DCE6F2') + kpi('Turbo', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm'))) + kpi('Presión entrada', f0(V('psigExpansor')), 'psig', zc('psigExpansor',V('psigExpansor')));
       if(s==='d820301') return kpi('Nivel', f1(V('lvlD820301')), '%', zc('lvlD820301',V('lvlD820301'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD820301.sp), '%', '#FFB300') + kpi('Temp. tope', f1(V('expInTemp')), '°F', '#9AD8FF');
-      if(s==='booster') return kpi('Recirculación SP', f1(state.boosterRecycleSP), '%', '#FFB300') + kpi('Recirculación PV', f1(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&run()?'#FF6B6B':'#7FD4FF') + kpi('Recontactor', f1(V('psigRecontactor')), 'psig', zc('psigRecontactor',V('psigRecontactor'))) + kpi('Turbo', f0(V('expRpm')), 'rpm', zc('expRpm',V('expRpm')));
+      if(s==='booster') return kpi('FIC0301 SP', f1(state.boosterRecycleSP), '%', '#FFB300') + kpi('FIC0301 PV', f1(state.boosterRecyclePV), '%', state.boosterRecyclePV<30&&run()?'#FF6B6B':'#7FD4FF') + kpi('Recontactor PIC0306', f1(V('psigRecontactor')), 'psig', zc('psigRecontactor',V('psigRecontactor'))) + kpi('Descarga booster', f0(V('boosterPSIG')), 'psig', zc('boosterPSIG',V('boosterPSIG')));
       if(s==='aero') return aeroVals('booster');
     }
     if(C.kind==='rc'){
@@ -8048,20 +8039,15 @@ setInterval(tickChrom, 1500);
       return trend + `<div class="tw-note">El frío lo aporta el gas residual que vuelve del Recontactor. Si el expansor trabaja mal, todo el tren se calienta.</div>`;
     }
     if(C.kind==='exp'){
-      if(s==='expansor') return `<div class="tw-ctl-title">Setpoint velocidad SIC-0301</div>` + step('exprpm', f0(state.expRpmSP), 'rpm', '−1000', '+1000') + trend;
+      if(s==='expansor') return `<div class="tw-ctl-title">Setpoint velocidad SIC0303B</div>` + step('exprpm', f0(state.expRpmSP), 'rpm', '−1000', '+1000') + trend;
       if(s==='jt') return `<div class="tw-note">La JT es el respaldo del turbo y opera sola: abre cuando el turboexpansor se detiene (menos de 3000 rpm) o con ESD, y cierra cuando el turbo vuelve a tomar el gas. Con la JT se sigue enfriando, pero bastante menos que con el turbo.</div>`;
-      if(s==='recirc') return `<div class="tw-ctl-title">Recirculación del turbo</div>
-        <div class="tw-stepv" style="min-height:40px">${f0(state.recircOpen)} % abierta</div>
-        <div class="tw-grid4">${[-10,-1,1,10].map(d=>`<button type="button" class="tw-btn" data-tw-act="jt" data-d="${d}">${d>0?'+':'−'}${Math.abs(d)}%</button>`).join('')}</div>
-        <div class="tw-step"><input type="number" class="tw-in" id="tw-in-jt" min="0" max="100" step="1" value="${f0(state.recircOpen)}" aria-label="Apertura recirculación en %"><button type="button" class="tw-btn" data-tw-act="jtset">Aplicar %</button></div>
-        <div class="tw-note">Abrirla deriva gas antes del expansor hacia recompresores: baja la presión del Recontactor (${f0(V('psigRecontactor'))} psig) y se pierde frío. Cerrarla manda todo por el expansor y se infla la entrada del Recontactor.</div>`;
-      if(s==='d820301') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820301">Faceplate LIC-0301</button><button type="button" class="tw-btn" data-tw-act="slug">Simular bache (+15%)</button>`;
+      if(s==='d820301') return `<button type="button" class="tw-btn" data-tw-act="vessel" data-k="lvlD820301">Faceplate LIC0301</button><button type="button" class="tw-btn" data-tw-act="slug">Simular bache (+15%)</button>`;
       if(s==='aero') return aeroCtls('booster');
-      if(s==='booster') return `<div class="tw-ctl-title">Recirculación del booster (antisurge)</div>
+      if(s==='booster') return `<div class="tw-ctl-title">FIC0301 · Recirculación del booster (entrada ↔ salida)</div>
         <div class="tw-stepv" style="min-height:40px">SP ${f1(state.boosterRecycleSP)} %</div>
         <div class="tw-grid4">${[-10,-1,1,10].map(d=>`<button type="button" class="tw-btn" data-tw-act="brec" data-d="${d}">${d>0?'+':'−'}${Math.abs(d)}%</button>`).join('')}</div>
         <div class="tw-step"><input type="number" class="tw-in" id="tw-in-brec" min="0" max="100" step="1" value="${f0(state.boosterRecycleSP)}" aria-label="Recirculación en %"><button type="button" class="tw-btn" data-tw-act="brecset">Aplicar %</button></div>
-        <div class="tw-note">Más recirculación protege al booster pero lo carga: baja la velocidad del turbo (menos frío) y la presión que entrega a los recompresores. Menos de 30% con carga alta = riesgo de bombeo. Normal: 60%.</div>`;
+        <div class="tw-note">Es la recirculación entre la entrada y la salida del booster, de donde toman los recompresores. Cerrarla (bajar el %) sube la presión del Recontactor (${f0(V('psigRecontactor'))} psig) y la de descarga del booster (${f0(V('boosterPSIG'))} psig); abrirla las baja y le quita velocidad al turbo. Menos de 30% con carga alta = riesgo de bombeo. Normal: SP 60%. La válvula es NO: abre con la ESD.</div>`;
     }
     if(C.kind==='rc'){
       if(s==='aero') return aeroCtls('recomp');
@@ -9144,7 +9130,7 @@ setInterval(tickChrom, 1500);
   };
   const PFD_ALIAS = { 'AE-0501':'D27.0501', 'AE-0502':'D27.0502', 'P-0501':'D31.0501', 'P-0502':'D31.0502', 'P-0306':'D31.0302', 'P-0301':'D31.0301', 'PV-0301':'D82.0301' };
   const PFD_SEL = {
-    'exp:expansor':['D41.0301'], 'exp:booster':['D41.0301','S-booster'], 'exp:aero':['D27.0302','S-booster'], 'exp:jt':['D82.0301'], 'exp:recirc':['S-booster'],
+    'exp:expansor':['D41.0301'], 'exp:booster':['D41.0301','S-booster'], 'exp:aero':['D27.0302','S-booster'], 'exp:jt':['D82.0301'],
     'rc:rc4':['D42.0301'], 'rc:rc7':['D42.0301'], 'rc:rc8':['D42.0301'], 'rc:rc9':['D42.0301'], 'rc:rpm':['D42.0301'], 'rc:succion':['S-booster'], 'rc:aero':['D27.0302'],
     'recont:pic':['D81.0301'], 'recont:fondo':['D31.0301','D81.0301'],
     'sep:proceso':['V-103','S-inlet'], 'comp:succion':['COMP-ENT','F-101'], 'comp:descarga':['COMP-ENT'], 'comp:aero':['COMP-ENT'],
