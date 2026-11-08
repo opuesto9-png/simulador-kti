@@ -1415,7 +1415,7 @@
       <div class="speed-grp" title="Velocidad de simulación">
         <button class="spd-btn" data-speed="0">⏸</button>
         <button class="spd-btn active" data-speed="1">1×</button>
-        <button class="spd-btn" data-speed="4">4×</button>
+        <button class="spd-btn" data-speed="4">4×</button><button class="spd-btn" data-speed="10">10×</button><button class="spd-btn" data-speed="30">30×</button>
       </div>
     </div>
   </div>
@@ -1930,9 +1930,9 @@ const state = {
     lvlD820302:  { tag:'LIC-0302', name:'Acumulador Reflujo Deet D82.0302', sp:45.0, pv:45.0, op:45, mode:'AUTO', lah:75, lahh:88, lal:15.0, lall:5.0, unit:'%', pumpKeys:['deet','deetB'] },
     lvlD810302:  { tag:'LIC-0302B', name:'Fondo Columna Deetanizador D81.0302', sp:45.0, pv:45.8, op:45, mode:'AUTO', lah:70, lahh:85, lal:20.0, lall:8.0, unit:'%' },
     lvlD810501:  { tag:'LIC-0501', name:'Fondo Torre Depropanizadora D81.0501', sp:60.0, pv:60.0, op:52, mode:'AUTO', lah:78, lahh:90, lal:25.0, lall:10.0, unit:'%' },
-    lvlD820501:  { tag:'LI-D82.0501', name:'Acumulador Horizontal Depro D82.0501', sp:95.0, pv:97.2, op:60, mode:'AUTO', lah:98, lahh:100, lal:30.0, lall:15.0, unit:'%', pumpKeys:['depro','deproB'] },
+    lvlD820501:  { tag:'LI-D82.0501', name:'Acumulador Horizontal Depro D82.0501', sp:95.0, pv:97.2, op:60, mode:'AUTO', lah:200, lahh:200, fullOk:true, lal:30.0, lall:15.0, unit:'%', pumpKeys:['depro','deproB'] },
     lvlD810502:  { tag:'LIC-0502', name:'Fondo Torre Debutanizadora D81.0502', sp:50.0, pv:54.2, op:48, mode:'AUTO', lah:75, lahh:88, lal:20.0, lall:8.0, unit:'%', pumpKeys:['debuFondo'] },
-    lvlD820502:  { tag:'LI-D82.0502', name:'Acumulador Horizontal Debu D82.0502', sp:100.0, pv:103.6, op:62, mode:'AUTO', lah:105, lahh:108, lal:30.0, lall:15.0, unit:'%', pumpKeys:['debuTope','debuTopeB'] },
+    lvlD820502:  { tag:'LI-D82.0502', name:'Acumulador Horizontal Debu D82.0502', sp:100.0, pv:103.6, op:62, mode:'AUTO', lah:200, lahh:200, fullOk:true, lal:30.0, lall:15.0, unit:'%', pumpKeys:['debuTope','debuTopeB'] },
     lvlD821101:  { tag:'LI-D82.1101', name:'Tanque Expansión Hot Oil D82.1101', sp:50.0, pv:50.8, op:0, mode:'AUTO', lah:80, lahh:92, lal:20.0, lall:10.0, unit:'%' },
     lvlD823101:  { tag:'LIC-3101', name:'Scrubber Gas Combustible D82.3101', sp:1.5, pv:1.5, op:15, mode:'AUTO', lah:40, lahh:70, lal:0.8, lall:0.2, unit:'%' }
   },
@@ -2144,6 +2144,7 @@ function applySteadyStatePreset(){
 
   state.vals.tankPropano = 32.35; state.vals.tankButano = 18.77; state.vals.tankGasolina = 36.62;
   state.loadSmooth = 1.0;
+  state.cryoCool = 1; state.rcRpmRamp = state.rcRpmSP; state.mcRpmRamp = state.mcRpmSP;
   state.esdActive = false;
   state.esdCause = '';
   state.flareFlow = 0.0;
@@ -2204,6 +2205,9 @@ function applyColdResetPreset(){
   Object.values(state.pumps).forEach(p=>p.on=false);
   state.vals.tankPropano = 12; state.vals.tankButano = 10; state.vals.tankGasolina = 8;
   state.loadSmooth = 0;
+  state.cryoCool = 0; state.rcRpmRamp = 0; state.mcRpmRamp = 0;
+  state.vals.expRpmPV = 0; state.vals.recontactorPV = 0; state.vals.lowSepPV = 0;
+  Object.values(state.aeros).forEach(a=>{ a.pv = state.ambientTemp*1.8+32; });
   state.esdActive = false;
   state.esdCause = '';
   state.flareFlow = 0.0;
@@ -2531,7 +2535,7 @@ const AREAS = [
       { key:'topTempDepro', tag:'TI-TOPE D81.0501', name:'Temp. vapor tope a condensador (126.00 °F)', unit:'°F', norm:'90–142 °F', zones:[[60,88,'#F5A623'],[88,142,'#33D69F'],[142,175,'#FF4B4B']], reqLoad:true },
       { key:'bottomTempDepro', tag:'TIC-0501 (D21.0501)', mode:'A', name:'Reboiler D21.0501 (SP 268.00 / PV 268.14 °F · Fondo 251.6 °F)', unit:'°F', norm:'235–278 °F', zones:[[70,235,'#F5A623'],[235,278,'#33D69F'],[278,305,'#FF4B4B']], reqLoad:true },
       { key:'lvlD810501', tag:'LIC-0501 (D81.0501)', mode:'A', name:'Nivel fondo columna D81.0501 (SP 60.00 / PV 60.00%)', unit:'%', norm:'25–75%', zones:[[0,20,'#F5A623'],[20,80,'#33D69F'],[80,100,'#FF4B4B']] },
-      { key:'lvlD820501', tag:'LI-D82.0501', name:'Nivel acumulador horizontal D82.0501', unit:'%', norm:'20–95%', zones:[[0,15,'#F5A623'],[15,96,'#33D69F'],[96,105,'#FF4B4B']] },
+      { key:'lvlD820501', tag:'LI-D82.0501', name:'Nivel acumulador horizontal D82.0501 (lleno es normal)', unit:'%', norm:'30–110%', zones:[[0,15,'#F5A623'],[15,110,'#33D69F']] },
       { key:'deproRefluxGPM', tag:'FIC-0501 (REFLUJO)', mode:'A', name:'Caudal reflujo a columna (SP 60.00 / PV 60.49 · Propano 11.36)', unit:'USGPM', norm:'40–75', zones:[[0,30,'#F5A623'],[30,80,'#33D69F'],[80,110,'#FF4B4B']], reqLoad:true },
       { key:'purityC3', tag:'AI-CROM PROPA', name:'Pureza Propano C3 en línea', unit:'%', norm:'≥ 95.0%', zones:[[70,95,'#FF4B4B'],[95,96.5,'#F5A623'],[96.5,100,'#33D69F']], reqLoad:true }
     ],
@@ -2551,7 +2555,7 @@ const AREAS = [
       { key:'topTempDebu', tag:'TI-TOPE D81.0502', name:'Temp. vapor tope a condensador (120.91 °F)', unit:'°F', norm:'105–185 °F', zones:[[70,105,'#F5A623'],[105,186,'#33D69F'],[186,215,'#FF4B4B']], reqLoad:true },
       { key:'bottomTempDebu', tag:'TIC-0502 (D21.0502)', mode:'A', name:'Reboiler D21.0502 (SP 248.00 / PV 248.98 °F · Fondo 214.5 °F)', unit:'°F', norm:'215–258 °F', zones:[[70,215,'#F5A623'],[215,258,'#33D69F'],[258,285,'#FF4B4B']], reqLoad:true },
       { key:'lvlD810502', tag:'LIC-0502 (D81.0502)', mode:'A', name:'Nivel fondo columna D81.0502 (SP 50.0 / PV 54.2%)', unit:'%', norm:'25–75%', zones:[[0,20,'#F5A623'],[20,80,'#33D69F'],[80,100,'#FF4B4B']] },
-      { key:'lvlD820502', tag:'LI-D82.0502', name:'Nivel acumulador horizontal D82.0502', unit:'%', norm:'20–95%', zones:[[0,15,'#F5A623'],[15,96,'#33D69F'],[96,105,'#FF4B4B']] },
+      { key:'lvlD820502', tag:'LI-D82.0502', name:'Nivel acumulador horizontal D82.0502 (lleno es normal)', unit:'%', norm:'30–110%', zones:[[0,15,'#F5A623'],[15,110,'#33D69F']] },
       { key:'debuRefluxGPM', tag:'FIC-0502 (REFLUJO)', mode:'A', name:'Reflujo (SP 20.00 / PV 19.97 · Butano 6.32 · Gasolina 12.09)', unit:'USGPM', norm:'12–30', zones:[[0,10,'#F5A623'],[10,35,'#33D69F'],[35,50,'#FF4B4B']], reqLoad:true },
       { key:'purityC4', tag:'AI-CROM DEBU', name:'Pureza Butano comercial (iC4+nC4)', unit:'%', norm:'≥ 90.0%', zones:[[65,90,'#FF4B4B'],[90,92,'#F5A623'],[92,100,'#33D69F']], reqLoad:true }
     ],
@@ -4713,13 +4717,13 @@ function stepPhysics(){
   const anyValve = state.valves.v101||state.valves.v102||state.valves.v103;
   const valveFactor = ((state.valves.v101?0.45:0) + (state.valves.v102?0.35:0) + (state.valves.v103?0.45:0));
   const target = (!state.esdActive && anyValve && mcCapacity>0) ? Math.min(1, mcCapacity * Math.min(1, valveFactor+0.25)) : 0;
-  state.loadSmooth = state.loadSmooth*0.90 + target*0.10;
+  state.loadSmooth = state.loadSmooth + (target - state.loadSmooth)/150;   // ~7 min para tomar carga
   const load = state.loadSmooth;
   const n = (a)=> (Math.random()-0.5)*a;
 
   // Separador de baja V-101 (PI-5107: 25.50 PSIG cuando SP=27)
   const lowSepTarget = state.valves.v101 ? (state.lowSepSP - 1.5) : 1.0;
-  state.vals.lowSepPV = Math.max(0, Math.min(60, state.vals.lowSepPV*0.88 + lowSepTarget*0.12 + n(0.3)));
+  state.vals.lowSepPV = Math.max(0, Math.min(60, state.vals.lowSepPV*0.97 + lowSepTarget*0.03 + n(0.3)));
 
   // Ciclo de torres deshidratadoras y saturación de tamiz molecular
   if(!state.esdActive && state.towerMode==='AUTO') state.towerTimer += 1;
@@ -4756,14 +4760,17 @@ function stepPhysics(){
   const capacityUnits = (state.hornoA?1:0) + (state.hornoB?1:0);
   const hotOilOn = capacityUnits>0 && hoPumpsRunning>0;
   const hotOilTarget = hotOilOn ? Math.max(80, Math.min(516, 514.3 - Math.max(0, callingCount - capacityUnits*1.2)*28)) : 80;
-  state.vals.hotOilTemp = Math.min(516, Math.max(60, state.vals.hotOilTemp*0.90 + hotOilTarget*0.10 + n(0.4)));
+  { // calentamiento/enfriamiento del hot oil limitado (~3.6 °F/min subiendo, ~1.8 °F/min bajando)
+    const hoT = state.vals.hotOilTemp, d = (hotOilTarget - hoT)/240;
+    state.vals.hotOilTemp = Math.min(516, Math.max(60, hoT + Math.max(-0.03, Math.min(0.06, d)) + n(0.2)));
+  }
 
   // Reboilers
   const heatShare = callingCount>0 ? Math.min(1, (capacityUnits*1.4*hoFlowFactor)/callingCount) : 1;
   ['deet','depro','debu'].forEach(k=>{
     const r = state.reboilers[k];
     const rTarget = hotOilOn ? Math.min(r.sp, state.vals.hotOilTemp - 12) : r.min;
-    const rate = (rTarget > r.pv) ? 0.12*heatShare : 0.08;
+    const rate = (rTarget > r.pv) ? 0.004*heatShare : 0.002;   // la columna tarda minutos en calentar
     r.pv = Math.max(r.min-2, r.pv + (rTarget - r.pv)*rate + n(0.25));
   });
   const rebFactor = (k)=>{ const r = state.reboilers[k]; return Math.max(0, Math.min(1.1, (r.pv - r.low*0.75) / (r.normal - r.low*0.75))); };
@@ -4776,14 +4783,18 @@ function stepPhysics(){
 
   // Turboexpansor RPM
   const expRpmTarget = load>0.03 ? (state.expRpmSP * 0.8343 * recircFactor * Math.min(1,(load+0.20))) : 0;
-  state.vals.expRpmPV = Math.max(0, state.vals.expRpmPV*0.88 + expRpmTarget*0.12 + (load>0.03?n(45):0));
+  state.vals.expRpmPV = Math.max(0, state.vals.expRpmPV*0.98 + expRpmTarget*0.02 + (load>0.03?n(45):0));
 
-  const rcRpmPV = recompRunning>0 ? (state.rcRpmSP * (0.94 + 0.06*load) + n(3)) : 0;
-  const mcRpmPV = mcRunning>0 ? (state.mcRpmSP * (0.95 + 0.05*load) + n(3)) : 0;
+  // RPM con rampa de aceleración (~25 rpm/s), no instantáneas
+  const ramp = (cur, tgt, up, dn) => cur + Math.max(-dn, Math.min(up, tgt - cur));
+  state.rcRpmRamp = ramp(state.rcRpmRamp||0, recompRunning>0 ? state.rcRpmSP * (0.94 + 0.06*load) : 0, 25, 40);
+  state.mcRpmRamp = ramp(state.mcRpmRamp||0, mcRunning>0 ? state.mcRpmSP * (0.95 + 0.05*load) : 0, 25, 40);
+  const rcRpmPV = state.rcRpmRamp > 1 ? state.rcRpmRamp + n(3) : 0;
+  const mcRpmPV = state.mcRpmRamp > 1 ? state.mcRpmRamp + n(3) : 0;
 
   // Recontactor pressure PIC-0305
   const recontactorTarget = state.esdActive ? 232 : (load>0.03 ? state.recontactorSP + 6 : 238);
-  state.vals.recontactorPV = state.vals.recontactorPV*0.90 + recontactorTarget*0.10 + n(0.5);
+  state.vals.recontactorPV = state.vals.recontactorPV*0.98 + recontactorTarget*0.02 + n(0.5);
 
   /* ---- DINÁMICA DE AEROENFRIADORES FUNCIONALES ---- */
   Object.keys(state.aeros).forEach(k=>{
@@ -4817,7 +4828,7 @@ function stepPhysics(){
     const ntu = (0.35 + 0.45 * fansOn) * windF * aeroK(k);
     const eff = 1 - Math.exp(-ntu);
     const targetTemp = load>0.03 ? (airF + (inTemp - airF) * (1 - eff)) : (airF + 4);
-    a.pv = Math.max(-20, a.pv*0.86 + targetTemp*0.14 + n(0.2));
+    a.pv = Math.max(-20, a.pv*0.98 + targetTemp*0.02 + n(0.2));
   });
 
   // Top temps acopladas a aeroenfriadores
@@ -4829,10 +4840,12 @@ function stepPhysics(){
 
   // Enfriador por agua D21.0202
   const coolerTarget = load>0.03 ? (116.9 - (state.coolerCap/85)*(116.9 - 59.17)) : 68;
-  state.vals.coolerOutPV = state.vals.coolerOutPV*0.85 + coolerTarget*0.15 + n(0.3);
+  state.vals.coolerOutPV = state.vals.coolerOutPV*0.98 + coolerTarget*0.02 + n(0.3);
 
   /* ---- DINÁMICA DE RECIPIENTES Y NIVELES FUNCIONALES ---- */
   const cryoEff = Math.max(0, Math.min(1, load * recompFactor * recircFactor));
+  // el tren criogénico se enfría de a poco (~15-20 min) y se calienta si se para
+  state.cryoCool = Math.max(0, Math.min(1, (state.cryoCool||0) + ((load>0.03 && recompRunning>0 ? 1 : 0) - (state.cryoCool||0))/(load>0.03 && recompRunning>0 ? 300 : 600)));
   state.nglRecovery = load > 0.03 ? Math.min(97.8, 34 + 62.5 * recompFactor * recircFactor * Math.min(1, state.expRpmSP/34000)) : 0;
 
   // Simulación de balance de masa en cada recipiente
@@ -4845,14 +4858,14 @@ function stepPhysics(){
     else if(k==='lvlV103') inRate = state.valves.v103 ? (load * 0.38) : 0;
     else if(k==='lvlGas001') inRate = load * 0.22;
     else if(k==='lvlD820202') inRate = isRegenActive ? (load * 0.12 * (100-state.coolerCap)/60) : 0;
-    else if(k==='lvlD820301') inRate = cryoEff * load * 0.26;
-    else if(k==='lvlD810301') inRate = cryoEff * load * 0.58;
+    else if(k==='lvlD820301') inRate = cryoEff * state.cryoCool * load * 0.26;
+    else if(k==='lvlD810301') inRate = cryoEff * state.cryoCool * load * 0.58;
     else if(k==='lvlD820302') inRate = load * 0.44 * rebDeetF;
     else if(k==='lvlD810302') inRate = load * 0.48 * rebDeetF;
     else if(k==='lvlD810501') inRate = load * 0.42 * rebDeproF;
-    else if(k==='lvlD820501') inRate = load * 0.62 * (state.aeros.depro.pv < 145 ? 1 : 0.4);
+    else if(k==='lvlD820501') inRate = load * 0.62 * rebDeproF * (state.aeros.depro.pv < 145 ? 1 : 0.4);   // sin reboiler caliente no hay vapor de tope
     else if(k==='lvlD810502') inRate = load * 0.36 * rebDebuF;
-    else if(k==='lvlD820502') inRate = load * 0.40 * (state.aeros.debu.pv < 140 ? 1 : 0.4);
+    else if(k==='lvlD820502') inRate = load * 0.40 * rebDebuF * (state.aeros.debu.pv < 140 ? 1 : 0.4);
     else if(k==='lvlD821101') inRate = (state.vals.hotOilTemp - 80)*0.0035;
     else if(k==='lvlD823101') inRate = 0.015 * load;
 
@@ -4928,7 +4941,7 @@ function stepPhysics(){
   state.qual.depro = Math.max(0, Math.min(1, rebDeproF*0.38 + recircFactor*0.16 + aeroDeproQual*0.26 + refluxQualDepro*0.20));
   state.qual.debu = Math.max(0, Math.min(1, rebDebuF*0.38 + recircFactor*0.16 + aeroDebuQual*0.26 + refluxQualDebu*0.20));
   state.qual.recirc = recircFactor;
-  state.qual.cryo = cryoEff;
+  state.qual.cryo = cryoEff * state.cryoCool;
 
   const hydrateDP = (state.h2oPpm > 1.6 && tempExpOut < -20) ? (state.h2oPpm - 1.5)*4.5 : 0;
 
@@ -4936,6 +4949,7 @@ function stepPhysics(){
   const deproOverpressure = Math.max(0, (state.aeros.depro.pv - 126.0) * 1.35);
   const debuOverpressure = Math.max(0, (state.aeros.debu.pv - 120.9) * 1.15);
 
+  const cryoMix = (cold, amb) => load>0.03 || state.cryoCool>0.02 ? amb + (cold - amb)*state.cryoCool : amb;
   state.lastV = {
     k101SurgeMargin: state.antiSurge.k101.margin,
     k101ASV: state.antiSurge.k101.asv,
@@ -5021,20 +5035,20 @@ function stepPhysics(){
     regenHeaterOutTemp: isRegenActive && hotOilOn ? (78.03 + n(0.3)) : 68.0,
 
     // 8. intercambiadores
-    hx301InTemp: load>0.03 ? (-119.84 * cryoEff + n(0.5)) : 65,
-    hx301ATemp: load>0.03 ? (-119.84 * cryoEff + n(0.5)) : 65,
-    hx301Temp: load>0.03 ? (-67.07 * cryoEff + n(0.4)) : 65,
-    hx301BTemp: load>0.03 ? (-67.07 * cryoEff + n(0.4)) : 65,
-    hx303Temp: load>0.03 ? (-62.58 * cryoEff + n(0.4)) : 65,
+    hx301InTemp: cryoMix(-119.84 * cryoEff + n(0.5), 65),
+    hx301ATemp: cryoMix(-119.84 * cryoEff + n(0.5), 65),
+    hx301Temp: cryoMix(-67.07 * cryoEff + n(0.4), 65),
+    hx301BTemp: cryoMix(-67.07 * cryoEff + n(0.4), 65),
+    hx303Temp: cryoMix(-62.58 * cryoEff + n(0.4), 65),
     coldBoxDP: load>0.03 ? (2.98 * load + hydrateDP + n(0.05)) : 0.2,
-    hx304Temp: load>0.03 ? (-34.69 * cryoEff + n(0.4)) : 65,
+    hx304Temp: cryoMix(-34.69 * cryoEff + n(0.4), 65),
     hx308Temp: hotOilOn ? (67.67 + n(0.3)) : 62.0,
 
     // 9. expansor
     lvlD820301: state.vessels.lvlD820301.pv,
     d820301Lvl: state.vessels.lvlD820301.pv,
-    expInTemp: load>0.03 ? (-31.21 * cryoEff + n(0.3)) : 65,
-    expSuctionTemp: load>0.03 ? (-31.21 * cryoEff + n(0.3)) : 65,
+    expInTemp: cryoMix(-31.21 * cryoEff + n(0.3), 65),
+    expSuctionTemp: cryoMix(-31.21 * cryoEff + n(0.3), 65),
     psigExpansor: mcRunning>0 ? (823.0 * (0.88 + 0.12*load) + n(2.0)) : 180,
     expRpm: state.vals.expRpmPV,
     boosterPSIG: load>0.03 ? (258.0 + (state.recontactorSP - 262) + n(1.0)) : 120,
@@ -5061,12 +5075,12 @@ function stepPhysics(){
     recontTopTemp: load>0.03 ? (tempExpOut - 21.99 + n(0.4)) : 60,
     recontFeedTemp: tempExpOut,
     recontBotTemp: load>0.03 ? (tempExpOut - 5.03 + n(0.4)) : 60,
-    d210305Temp: load>0.03 ? (-114.92 * cryoEff + n(0.3)) : 60,
+    d210305Temp: cryoMix(-114.92 * cryoEff + n(0.3), 60),
 
     // 12. reflujo_deet
-    cond306InTemp: load>0.03 ? (-57.68 * cryoEff + n(0.4)) : 60,
-    cond306OutTemp: load>0.03 ? (-36.94 * cryoEff + n(0.4)) : 60,
-    d210306OutTemp: load>0.03 ? (-36.94 * cryoEff + n(0.4)) : 60,
+    cond306InTemp: cryoMix(-57.68 * cryoEff + n(0.4), 60),
+    cond306OutTemp: cryoMix(-36.94 * cryoEff + n(0.4), 60),
+    d210306OutTemp: cryoMix(-36.94 * cryoEff + n(0.4), 60),
     deetRefluxPSIG: load>0.03 ? (283.88 * (0.9 + 0.1*rebDeetF) + n(0.8)) : 120,
     lvlD820302: state.vessels.lvlD820302.pv,
     deetRefluxLvl: state.vessels.lvlD820302.pv,
@@ -5075,7 +5089,7 @@ function stepPhysics(){
 
     // 13. deetanizador
     psigDeet: load>0.03 ? (283.88 * (0.9 + 0.1*rebDeetF) + n(0.8)) : 120,
-    topTempDeet: load>0.03 ? (-15.41 + (1-cryoEff)*12 + n(0.3)) : 65,
+    topTempDeet: cryoMix(-15.41 + (1-cryoEff)*12 + n(0.3), 65),
     deetTrayMidTemp: load>0.03 ? (83.81 * rebDeetF + n(0.4)) : 68,
     trayMidDeet: load>0.03 ? (83.81 * rebDeetF + n(0.4)) : 68,
     deetTrayLowTemp: load>0.03 ? (154.07 * rebDeetF + n(0.4)) : 70,
@@ -7024,6 +7038,7 @@ buildFlowDiagram();
 stepPhysics();
 tickVisualsOnly();
 tickChrom();
+applyColdResetPreset();   // la app arranca con la planta en reposo total
 setInterval(tick, 1000);
 setInterval(tickChrom, 1500);
 </script>
@@ -7631,7 +7646,7 @@ setInterval(tickChrom, 1500);
         <text x="24" y="158" fill="#DCE6F2" font-size="12" font-weight="600">a D21.0303</text>
       </g>
       <!-- gas a expansor con PIC y JT -->
-      ${line('M470 80 H680 V520', '#9AD8FF', r, null, 4)}
+      ${line('M470 80 H680 V466', '#9AD8FF', r, null, 4)}
       ${rd(500, 56, f2(tIn), '°F', zc('expInTemp',tIn,'#9AD8FF'), 92)}
       <g class="tw-eq" data-tw-eq="jt">
         ${selBox('jt', 690, 76, 300, 250)}
@@ -7642,32 +7657,54 @@ setInterval(tickChrom, 1500);
         ${rd(880, 290, f0(jt)+' %', 'PV-0301', jt>0?'#FFCC66':'#33D69F', 104)}
       </g>
       ${valve(680, 330, spin?1:0, '', true)}
-      <!-- eje booster / expansor -->
+      <!-- eje booster / expansor (en corte) -->
       <g class="tw-eq" data-tw-eq="expansor">
-        ${selBox('expansor', 330, 380, 420, 220)}
-        <rect x="520" y="500" width="130" height="16" fill="#8FA3BD"/>
-        <path d="M640 470 Q700 470 720 508 Q700 546 640 546 Z" fill="url(#twMetalH)" stroke="#5E728C"/>
-        <path d="M530 470 Q470 470 450 508 Q470 546 530 546 Z" fill="url(#twMetalH)" stroke="#5E728C"/>
-        <circle cx="685" cy="508" r="16" fill="#0B1220" stroke="#9AD8FF"/>
-        <g class="${spin?'tw-fan':''}" style="transform-origin:685px 508px"><path d="M685 508 l11 -4 M685 508 l-11 -4 M685 508 v12" stroke="#9AD8FF" stroke-width="2.5" stroke-linecap="round"/></g>
-        <circle cx="485" cy="508" r="16" fill="#0B1220" stroke="#FFCC66"/>
-        <g class="${spin?'tw-fan':''}" style="transform-origin:485px 508px"><path d="M485 508 l11 -4 M485 508 l-11 -4 M485 508 v12" stroke="#FFCC66" stroke-width="2.5" stroke-linecap="round"/></g>
-        <text x="685" y="572" fill="#9AD8FF" font-size="11" text-anchor="middle" font-weight="600">EXPANSOR</text>
-        <text x="485" y="572" fill="#FFCC66" font-size="11" text-anchor="middle" font-weight="600">BOOSTER</text>
-        ${ctl(540, 400, 'A', f0(state.expRpmSP), f0(rpm), 'RPM', cR, 'SIC-0301')}
+        ${selBox('expansor', 396, 384, 404, 290)}
+        <!-- aceite de lubricación y gas de sello -->
+        ${line('M420 640 H760', '#FFB300', spin, null, 2)}
+        <path d="M562 640 V540 M618 640 V540" stroke="#FFB300" stroke-width="2" stroke-dasharray="4 3" opacity="${spin?1:.3}"/>
+        <path d="M545 470 V500 M635 470 V500" stroke="#B39DDB" stroke-width="2" stroke-dasharray="3 3" opacity="${spin?1:.3}"/>
+        <text x="424" y="660" fill="#FFB300" font-size="10">aceite de lubricación ${spin?'· en servicio':'· sin flujo'}</text>
+        <text x="590" y="466" fill="#B39DDB" font-size="10" text-anchor="middle">gas de sello</text>
+        <!-- eje y descansos -->
+        <rect x="530" y="512" width="120" height="16" fill="#8FA3BD"/>
+        <rect x="550" y="500" width="26" height="40" rx="3" fill="#3B4A60" stroke="#5E728C"/>
+        <rect x="606" y="500" width="26" height="40" rx="3" fill="#3B4A60" stroke="#5E728C"/>
+        <text x="590" y="556" fill="#8A9BB3" font-size="9" text-anchor="middle">descansos</text>
+        <!-- booster: voluta en corte con rodete -->
+        <circle cx="485" cy="520" r="54" fill="url(#twMetalH)" stroke="#5E728C" stroke-width="2"/>
+        <path d="M485 466 A54 54 0 0 1 539 520 L485 520 Z" fill="#0B1220" stroke="#FFCC66" stroke-dasharray="3 3"/>
+        <circle cx="485" cy="520" r="36" fill="#0B1220" stroke="#FFCC66"/>
+        <g class="${spin?'tw-fan':''}" style="transform-origin:485px 520px">
+          ${Array.from({length:10},(_,i)=>{const t=i*Math.PI/5;return `<path d="M${(485+7*Math.cos(t)).toFixed(1)} ${(520+7*Math.sin(t)).toFixed(1)} L${(485+33*Math.cos(t+0.35)).toFixed(1)} ${(520+33*Math.sin(t+0.35)).toFixed(1)}" stroke="#FFCC66" stroke-width="2.5" stroke-linecap="round"/>`;}).join('')}
+          <circle cx="485" cy="520" r="7" fill="#FFCC66"/>
+        </g>
+        <!-- expansor: voluta en corte con rueda radial -->
+        <circle cx="690" cy="520" r="54" fill="url(#twMetalH)" stroke="#5E728C" stroke-width="2"/>
+        <path d="M690 466 A54 54 0 0 0 636 520 L690 520 Z" fill="#0B1220" stroke="#9AD8FF" stroke-dasharray="3 3"/>
+        <circle cx="690" cy="520" r="36" fill="#0B1220" stroke="#9AD8FF"/>
+        <g class="${spin?'tw-fan':''}" style="transform-origin:690px 520px">
+          ${Array.from({length:12},(_,i)=>{const t=i*Math.PI/6;return `<path d="M${(690+33*Math.cos(t)).toFixed(1)} ${(520+33*Math.sin(t)).toFixed(1)} Q${(690+18*Math.cos(t-0.5)).toFixed(1)} ${(520+18*Math.sin(t-0.5)).toFixed(1)} ${(690+7*Math.cos(t-0.2)).toFixed(1)} ${(520+7*Math.sin(t-0.2)).toFixed(1)}" stroke="#9AD8FF" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;}).join('')}
+          <circle cx="690" cy="520" r="7" fill="#9AD8FF"/>
+        </g>
+        ${spin?`<g fill="#E6F6FF" opacity=".7" class="tw-bubbles"><circle cx="672" cy="490" r="1.6"/><circle cx="706" cy="548" r="1.6"/><circle cx="660" cy="530" r="1.4"/></g>`:''}
+        <text x="485" y="596" fill="#FFCC66" font-size="12" text-anchor="middle" font-weight="700">BOOSTER</text>
+        <text x="690" y="596" fill="#9AD8FF" font-size="12" text-anchor="middle" font-weight="700">EXPANSOR</text>
+        <text x="590" y="612" fill="${spin?'#33D69F':'#FF6B6B'}" font-family="${MONO}" font-size="12" text-anchor="middle" font-weight="700">${f0(rpm)} RPM</text>
+        ${ctl(538, 410, 'A', f0(state.expRpmSP), f0(rpm), 'RPM', cR, 'SIC-0301')}
       </g>
       <!-- descarga expansor a Recontactor -->
-      ${line('M720 520 H975', '#9AD8FF', r, 'twArrS', 4)}
+      ${line('M744 520 H975', '#9AD8FF', r, 'twArrS', 4)}
       ${line('M800 560 V520', '#9AD8FF', jt>0 && r, null, 3)}
       <text x="985" y="508" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="end">Recontactor</text>
       ${rd(880, 540, f0(V('psigRecontactor')), 'psig', '#7FD4FF', 104)} ${rd(880, 568, f2(tOut), '°F', cT, 104)}
       <!-- booster: succión, aero y recirculación -->
       <g class="tw-eq" data-tw-eq="booster">
         ${selBox('booster', 12, 300, 316, 380)}
-        ${line('M20 620 H200 V508 H450', '#FFCC66', r, null, 4)}
+        ${line('M20 620 H200 V520 H431', '#FFCC66', r, null, 4)}
         <text x="24" y="612" fill="#DCE6F2" font-size="12" font-weight="600">D31.0301A</text>
         ${rd(200, 630, f2(warm(80.02)), '°F', '#FFCC66', 92)}
-        ${line('M485 470 V290 H300', '#FFCC66', r, null, 4)}
+        ${line('M485 466 V290 H300', '#FFCC66', r, null, 4)}
         ${line('M60 350 H20', '#FFCC66', r, 'twArrG', 4)}
         <text x="24" y="342" fill="#DCE6F2" font-size="12" font-weight="600">Recomp.</text>
         ${line('M240 320 H260 V508', '#FFCC66', r, null, 2)}
