@@ -4891,6 +4891,12 @@ function stepPhysics(){
   state.nglRecovery = load > 0.03 ? Math.min(97.8, 34 + 62.5 * recompFactor * recircFactor * Math.min(1, state.expRpmSP/34000)) : 0;
 
   // Simulación de balance de masa en cada recipiente
+  // Producción de líquidos (NGL) en la criogenia: necesita frío y el turbo en marcha.
+  // Solo con la JT (turbo parado) se condensa bastante menos.
+  const turboOK = state.vals.expRpmPV > 3000;
+  const nglGen = cryoEff * state.cryoCool * (turboOK ? 1 : 0.45);
+  state.nglGen = nglGen;
+  const fOut = {};   // caudal que sale de cada recipiente en este paso (alimenta al siguiente)
   Object.keys(state.vessels).forEach(k=>{
     const v = state.vessels[k];
     let inRate = 0, baseOut = 0;
@@ -4915,14 +4921,15 @@ function stepPhysics(){
     else if(k==='lvlV103') inRate = state.valves.v103 ? (load * 0.38) : 0;
     else if(k==='lvlGas001') inRate = load * 0.22;
     else if(k==='lvlD820202') inRate = isRegenActive ? (load * 0.12 * (100-state.coolerCap)/60) : 0;
-    else if(k==='lvlD820301') inRate = cryoEff * state.cryoCool * load * 0.26;
-    else if(k==='lvlD810301') inRate = cryoEff * state.cryoCool * load * 0.58;
-    else if(k==='lvlD820302') inRate = load * 0.44 * rebDeetF;
-    else if(k==='lvlD810302') inRate = load * 0.48 * rebDeetF;
-    else if(k==='lvlD810501') inRate = load * 0.42 * rebDeproF;
-    else if(k==='lvlD820501') inRate = load * 0.62 * rebDeproF * (state.aeros.depro.pv < 145 ? 1 : 0.4);   // sin reboiler caliente no hay vapor de tope
-    else if(k==='lvlD810502') inRate = load * 0.36 * rebDebuF;
-    else if(k==='lvlD820502') inRate = load * 0.40 * rebDebuF * (state.aeros.debu.pv < 140 ? 1 : 0.4);
+    // --- tren de fraccionamiento en cadena: cada columna se alimenta del fondo de la anterior ---
+    else if(k==='lvlD820301') inRate = nglGen * load * 0.26;
+    else if(k==='lvlD810301') inRate = nglGen * load * 0.58;                                   // NGL al Recontactor
+    else if(k==='lvlD820302') inRate = (fOut.lvlD810301||0) * 0.76 * rebDeetF;                  // tope Deet → reflujo
+    else if(k==='lvlD810302') inRate = (fOut.lvlD810301||0) * (1 - 0.17*rebDeetF);              // fondo Deet (sin reboiler cae todo)
+    else if(k==='lvlD810501') inRate = (fOut.lvlD810302||0) * (1 - 0.125*rebDeproF);            // fondo Deet → Depro
+    else if(k==='lvlD820501') inRate = (fOut.lvlD810302||0) * 1.29 * rebDeproF * (state.aeros.depro.pv < 145 ? 1 : 0.4);
+    else if(k==='lvlD810502') inRate = (fOut.lvlD810501||0) * (1 - 0.143*rebDebuF);            // fondo Depro → Debu
+    else if(k==='lvlD820502') inRate = (fOut.lvlD810501||0) * 0.952 * rebDebuF * (state.aeros.debu.pv < 140 ? 1 : 0.4);
     else if(k==='lvlD821101') inRate = (state.vals.hotOilTemp - 80)*0.0035;
     else if(k==='lvlD823101') inRate = 0.015 * load;
 
@@ -4945,6 +4952,7 @@ function stepPhysics(){
       baseOut = (v.op / 50) * inRate * pumpFactor;
     }
 
+    fOut[k] = baseOut;
     // Variación del nivel
     const dL = inRate - baseOut + n(0.04);
     v.pv = Math.max(0, Math.min(108, v.pv + dL));
