@@ -1619,6 +1619,7 @@
 .tw-svgbtn{cursor:pointer}
 .tw-svgbtn:hover rect{filter:brightness(1.4)}
 .tw-btn-sel{outline:2px solid #4FC3F7;outline-offset:1px}
+.tw-in{flex:1 1 auto;min-width:0;min-height:44px;border-radius:8px;border:1px solid #2B3B52;background:#0B1220;color:#FFB300;font:700 16px "JetBrains Mono",monospace;padding:0 10px}
 .tw-soon{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:60px 20px;color:#A9B8CC;font-size:15px}
 </style><div id="twin-root"></div></section>
   <section class="panel-view" id="view-flow">
@@ -2222,6 +2223,7 @@ function applyColdResetPreset(){
   state.reboilers.deet.sp = state.reboilers.deet.min; state.reboilers.deet.pv = 75;
   state.reboilers.depro.sp = state.reboilers.depro.min; state.reboilers.depro.pv = 75;
   state.reboilers.debu.sp = state.reboilers.debu.min; state.reboilers.debu.pv = 75;
+  ['deet','depro','debu'].forEach(k=>{ state.reboilers[k].mode='AUTO'; state.reboilers[k].op=0; });
 
   Object.values(state.pumps).forEach(p=>p.on=false);
   state.vals.tankPropano = 12; state.vals.tankButano = 10; state.vals.tankGasolina = 8;
@@ -2884,7 +2886,16 @@ function aeroAirTempC(){
 /* =========================================================
    SISTEMA DE SEGURIDAD INSTRUMENTADA SIS / ESD
    ========================================================= */
+/* TIC de reboilers: en MAN el operador fija la apertura de la válvula de hot oil (OP %) */
+function rebSpEff(r){
+  if((r.mode||'AUTO')==='MAN'){
+    const hoAvail = (state.vals.hotOilTemp||80) - 12;
+    return r.min + Math.max(0, hoAvail - r.min) * (r.op||0) / 100;
+  }
+  return r.sp;
+}
 function triggerPlantESD(cause){
+  ['deet','depro','debu'].forEach(k=>{ state.reboilers[k].mode='AUTO'; state.reboilers[k].op=0; });
   state.esdActive = true;
   state.esdCause = cause || 'Pulsador de Emergencia General SIS/ESD';
   state.flareFlow = 18.5;
@@ -4769,7 +4780,8 @@ function stepPhysics(){
   // Cascada de hornos Hot Oil
   const callingCount = ['deet','depro','debu'].reduce((acc,k)=>{
     const r = state.reboilers[k];
-    return acc + ((r.sp > r.min+2 && (r.sp - r.pv) > 3) ? 1 : (r.sp > 150 ? 0.65 : 0));
+    const sp = rebSpEff(r);
+    return acc + ((sp > r.min+2 && (sp - r.pv) > 3) ? 1 : (sp > 150 ? 0.65 : 0));
   },0);
   const hornoBDesired = state.hornoBManual || (state.hornoA && !state.esdActive && callingCount>=1.8);
   if(hornoBDesired !== state.hornoBDesired){ state.hornoBDesired = hornoBDesired; state.cascadeCounter = 0; }
@@ -4792,7 +4804,14 @@ function stepPhysics(){
   const heatShare = callingCount>0 ? Math.min(1, (capacityUnits*1.4*hoFlowFactor)/callingCount) : 1;
   ['deet','depro','debu'].forEach(k=>{
     const r = state.reboilers[k];
-    const rTarget = hotOilOn ? Math.min(r.sp, state.vals.hotOilTemp - 12) : r.min;
+    const hoAvail = state.vals.hotOilTemp - 12;
+    const rTarget = hotOilOn ? Math.min(rebSpEff(r), hoAvail) : r.min;
+    // en AUTO la apertura de la válvula de hot oil sigue al controlador (para pasar a MAN sin salto)
+    if((r.mode||'AUTO')==='AUTO'){
+      // apertura que sostiene el SP con el hot oil disponible (misma relación que usa el modo MAN)
+      const need = hotOilOn ? (Math.min(r.sp, hoAvail) - r.min) / Math.max(1, hoAvail - r.min) * 100 : 0;
+      r.op = Math.max(0, Math.min(100, (r.op||0) + (need - (r.op||0))*0.3));
+    }
     const rate = (rTarget > r.pv) ? 0.004*heatShare : 0.002;   // la columna tarda minutos en calentar
     r.pv = Math.max(r.min-2, r.pv + (rTarget - r.pv)*rate + n(0.25));
   });
@@ -7281,7 +7300,8 @@ setInterval(tickChrom, 1500);
       <text x="22" y="568" fill="#FFB300" font-size="10" font-family="${MONO}">HOT OIL</text>
       <text x="22" y="624" fill="#FF7043" font-size="10" font-family="${MONO}">HOT OIL</text>
       <text x="220" y="636" fill="#DCE6F2" font-size="12" font-weight="600" text-anchor="middle">${tag}</text>
-      ${ctl(150, 498, 'A', f2(reb.sp), f2(reb.pv), '°F', botColor, tic)}`;
+      ${(reb.mode||'AUTO')==='MAN' ? ctl(150, 498, 'M', 'OP '+f0(reb.op||0)+'%', f2(reb.pv), '°F', botColor, tic) : ctl(150, 498, 'A', f2(reb.sp), f2(reb.pv), '°F', botColor, tic)}
+      ${valve(118, 575, hot ? Math.max(0.05,(reb.op||0)/100) : 0, f0(reb.op||0)+'%')}`;
   }
 
   /* ===================== ESCENA: DEPRO / DEBU ===================== */
@@ -8807,9 +8827,22 @@ setInterval(tickChrom, 1500);
     return `<div class="tw-ctl-title">Motores</div><div class="tw-grid4">${ae.fans.map((on,i)=>`<button type="button" class="tw-btn ${on?'on':''}" data-tw-act="fan" data-ae="${k}" data-i="${i}">M${i+1}<br><small>${on?'ON':'OFF'}</small></button>`).join('')}</div>
       <button type="button" class="tw-btn" data-tw-act="aeromode" data-ae="${k}">Pasar a ${ae.mode==='AUTO'?'MANUAL':'AUTO'}</button>`; }
   const pumpBtn = (k,l,on,off) => `<button type="button" class="tw-btn ${state.pumps[k].on?'on':''}" data-tw-act="pump" data-k="${k}">${l}<br><small>${state.pumps[k].on?(on||'MARCHA'):(off||'STOP')}</small></button>`;
-  const rebCtls = (rk, tic) => { const reb = state.reboilers[rk]; return `<div class="tw-ctl-title">Setpoint ${tic}</div>
-      <div class="tw-step"><button type="button" class="tw-btn" data-tw-act="reb" data-rk="${rk}" data-d="-5">−5</button><div class="tw-stepv">${f0(reb.sp)} °F</div><button type="button" class="tw-btn" data-tw-act="reb" data-rk="${rk}" data-d="5">+5</button></div>
-      <button type="button" class="tw-btn" data-tw-act="rebnom" data-rk="${rk}">Llevar a normal (${reb.normal} °F)</button>`; };
+  const rebCtls = (rk, tic) => { const reb = state.reboilers[rk], man = (reb.mode||'AUTO')==='MAN';
+    const stepBtns = (act, unit) => `<div class="tw-grid4">${[-10,-1,1,10].map(d=>`<button type="button" class="tw-btn" data-tw-act="${act}" data-rk="${rk}" data-d="${d}">${d>0?'+':'−'}${Math.abs(d)}${unit}</button>`).join('')}</div>`;
+    return `<div class="tw-ctl-title">${tic} · válvula de hot oil</div>
+      <div class="tw-grid2"><button type="button" class="tw-btn ${!man?'on':''}" data-tw-act="rebmode" data-rk="${rk}" data-k="AUTO">AUTO<br><small>controla temperatura</small></button><button type="button" class="tw-btn ${man?'on':''}" data-tw-act="rebmode" data-rk="${rk}" data-k="MAN">MAN<br><small>apertura de válvula</small></button></div>
+      ${man ? `
+      <div class="tw-ctl-title">Apertura válvula (OP)</div>
+      <div class="tw-stepv" style="min-height:40px">${f0(reb.op||0)} %</div>
+      ${stepBtns('rebop','%')}
+      <div class="tw-step"><input type="number" class="tw-in" id="tw-in-${rk}" min="0" max="100" step="1" value="${f0(reb.op||0)}" aria-label="Apertura en %"><button type="button" class="tw-btn" data-tw-act="rebopset" data-rk="${rk}">Aplicar %</button></div>
+      <div class="tw-note">En manual la temperatura depende de la apertura y de cuánto calor trae el hot oil (${f0(V('hotOilTemp'))} °F). Si cambia la carga, la tenés que corregir vos.</div>` : `
+      <div class="tw-ctl-title">Setpoint (rango ${reb.min}–${reb.max} °F)</div>
+      <div class="tw-stepv" style="min-height:40px">${f0(reb.sp)} °F</div>
+      ${stepBtns('reb','°')}
+      <div class="tw-step"><input type="number" class="tw-in" id="tw-in-${rk}" min="${reb.min}" max="${reb.max}" step="1" value="${f0(reb.sp)}" aria-label="Setpoint en °F"><button type="button" class="tw-btn" data-tw-act="rebset" data-rk="${rk}">Aplicar SP</button></div>
+      <div class="tw-note">Apertura actual de la válvula: ${f0(reb.op||0)} %</div>`}
+      <button type="button" class="tw-btn" data-tw-act="rebnom" data-rk="${rk}">Llevar a normal (AUTO ${reb.normal} °F)</button>`; };
 
   function valsHtml(){
     if(!READY[twin.area]) return '';
@@ -8828,14 +8861,14 @@ setInterval(tickChrom, 1500);
       if(s==='bombas') return kpi('Bomba A', pumpTxt(C.pumps[0][0]), '', pumpCol(C.pumps[0][0])) + kpi('Bomba B', pumpTxt(C.pumps[1][0]), '', pumpCol(C.pumps[1][0]));
       if(s==='reflujo') return kpi('SP '+C.ficTag, f2(C.ficNom*(100-state.refluxSplit[C.split])/52), 'USGPM', '#FFB300') + kpi('PV', f2(V(C.refluxKey)), 'USGPM', '#38D9A9') + kpi('Retorno', f1(state.aeros[C.aero].pv*C.retRatio), '°F');
       if(s==='producto') return kpi('Envío', f2(V(C.prodKey)), 'USGPM', '#38D9A9') + kpi('Reparto', state.refluxSplit[C.split]+'%', 'a producto', '#DCE6F2');
-      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc(C.botKey,reb.pv,'#FFB300')) + kpi('SP', f0(reb.sp), '°F', '#FFB300') + kpi('Normal', f0(reb.normal), '°F', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc(C.botKey,reb.pv,'#FFB300')) + kpi((reb.mode||'AUTO')==='MAN'?'Modo':'SP', (reb.mode||'AUTO')==='MAN'?'MAN':f0(reb.sp), (reb.mode||'AUTO')==='MAN'?'':'°F', '#FFB300') + kpi('Válvula', f0(reb.op||0), '%', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
       if(s==='fondo') return kpi('Nivel', f1(V(C.colKey)), '%', zc(C.colKey,V(C.colKey),'#38D9A9')) + kpi('Salida', f1(run()?C.botTemp(reb.pv):60), '°F', '#FFB300') + kpi('Caudal', f2(V(C.botFlowKey)), 'USGPM', '#38D9A9') + (C.botPump?kpi('P-0503', pumpTxt(C.botPump), '', pumpCol(C.botPump)):'');
     }
     if(C.kind==='deet'){
       const reb = state.reboilers.deet;
       if(s==='columna') return kpi('Presión', f1(V('psigDeet')), 'psig', zc('psigDeet',V('psigDeet'))) + kpi('Tope', f1(V('topTempDeet')), '°F', zc('topTempDeet',V('topTempDeet'))) + kpi('Media', f1(V('deetTrayMidTemp')), '°F') + kpi('ΔP', f2(V('deetDP')), 'PSID');
       if(s==='alimentacion') return kpi('Reflujo D31.0302', f1(V('deetRefluxGPM')), 'GPM', '#38D9A9') + kpi('Carga planta', f0((state.loadSmooth||0)*100), '%');
-      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc('bottomTempDeet',reb.pv,'#FFB300')) + kpi('SP', f0(reb.sp), '°F', '#FFB300') + kpi('Normal', f0(reb.normal), '°F', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
+      if(s==='reboiler') return kpi('PV', f1(reb.pv), '°F', zc('bottomTempDeet',reb.pv,'#FFB300')) + kpi((reb.mode||'AUTO')==='MAN'?'Modo':'SP', (reb.mode||'AUTO')==='MAN'?'MAN':f0(reb.sp), (reb.mode||'AUTO')==='MAN'?'':'°F', '#FFB300') + kpi('Válvula', f0(reb.op||0), '%', '#DCE6F2') + kpi('Hot oil', f0(V('hotOilTemp')), '°F', '#FFB300');
       if(s==='fondo') return kpi('Nivel', f1(V('lvlD810302')), '%', zc('lvlD810302',V('lvlD810302'),'#38D9A9')) + kpi('SP', f1(state.vessels.lvlD810302.sp), '%', '#FFB300');
     }
     if(C.kind==='refdeet'){
@@ -8941,10 +8974,24 @@ setInterval(tickChrom, 1500);
       const p = state.pumps[btn.dataset.k]; p.on = !p.on;
       if(p.on && p.tank && state.vals[p.tank] !== undefined && state.vals[p.tank] < 3) addLog(`⚠ Advertencia: bomba ${p.tag} (${p.name}) arrancada con nivel <3% — riesgo de cavitación.`, 'alarm');
       else addLog(`Bomba ${p.tag} (${p.name}) ${p.on?'ARRANCADA (EN MARCHA)':'DETENIDA'}`, p.on?'ok':'info');
-    } else if(a==='reb' || a==='rebnom'){
+    } else if(a==='reb' || a==='rebnom' || a==='rebset'){
       const r = state.reboilers[btn.dataset.rk];
-      r.sp = a==='rebnom' ? r.normal : Math.max(r.min, Math.min(r.max, r.sp + (+btn.dataset.d)));
+      if(a==='rebnom'){ r.mode = 'AUTO'; r.sp = r.normal; }
+      else if(a==='rebset'){ const v = parseFloat(($('tw-in-'+btn.dataset.rk)||{}).value); if(isNaN(v)) return; r.sp = Math.max(r.min, Math.min(r.max, Math.round(v))); }
+      else r.sp = Math.max(r.min, Math.min(r.max, r.sp + (+btn.dataset.d)));
       addLog(`Setpoint reboiler ${r.tag} (${r.name}) ajustado a ${r.sp.toFixed(0)} °F`, 'info');
+    } else if(a==='rebmode'){
+      const r = state.reboilers[btn.dataset.rk], m = btn.dataset.k;
+      if((r.mode||'AUTO')!==m){
+        if(m==='AUTO') r.sp = Math.max(r.min, Math.min(r.max, Math.round(r.pv)));   // sin salto: SP toma la PV
+        r.mode = m;
+        addLog(`TIC reboiler ${r.tag} pasado a ${m==='MAN'?'MANUAL (OP '+Math.round(r.op||0)+'%)':'AUTO (SP '+r.sp+' °F)'}`, 'info');
+      }
+    } else if(a==='rebop' || a==='rebopset'){
+      const r = state.reboilers[btn.dataset.rk];
+      if(a==='rebopset'){ const v = parseFloat(($('tw-in-'+btn.dataset.rk)||{}).value); if(isNaN(v)) return; r.op = Math.max(0, Math.min(100, v)); }
+      else r.op = Math.max(0, Math.min(100, (r.op||0) + (+btn.dataset.d)));
+      addLog(`Válvula hot oil reboiler ${r.tag} en MANUAL ajustada a ${Math.round(r.op)}%`, 'info');
     } else if(a==='split'){
       const sk = btn.dataset.sk;
       state.refluxSplit[sk] = Math.max(20, Math.min(80, state.refluxSplit[sk] + (+btn.dataset.d)*5));
@@ -8982,7 +9029,7 @@ setInterval(tickChrom, 1500);
     if(!$('tw-svg')) renderShell();
     renderScene();
     const vals = $('tw-vals'); if(vals) vals.innerHTML = valsHtml();
-    const ctlEl = $('tw-ctls'); if(ctlEl && !ctlEl.matches(':hover')) ctlEl.innerHTML = controlsHtml();
+    const ctlEl = $('tw-ctls'); if(ctlEl && !ctlEl.matches(':hover') && !ctlEl.contains(document.activeElement)) ctlEl.innerHTML = controlsHtml();
     const tr = $('tw-trend'); if(tr) tr.innerHTML = trendSvg();
     renderFoot();
   }, 1000);
